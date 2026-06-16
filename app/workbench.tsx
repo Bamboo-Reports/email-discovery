@@ -20,11 +20,6 @@ export function Workbench({ bulkEnabled }: { bulkEnabled: boolean }) {
       <header className="page-head">
         <div>
           <h1>{showBulk ? 'bulk email finder' : 'email finder'}</h1>
-          <p className="page-sub">
-            {showBulk
-              ? 'upload a csv of names + domains. pattern detection runs against the live mx record; results are confidence-scored and exportable.'
-              : 'find an address from a name + domain, or verify an email you already have. probes run against the live mx record and the result is confidence-scored.'}
-          </p>
         </div>
       </header>
 
