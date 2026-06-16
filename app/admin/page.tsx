@@ -4,6 +4,9 @@ import { isAdminEmail } from '@/lib/supabase/admin';
 import { getAdminOverview } from '@/lib/verifications';
 import { getMillionVerifierCredits, type MillionVerifierCredits } from '@/lib/millionverifier';
 import { StatusBadge } from '@/components/StatusBadge';
+import { PaginatedTabs } from '@/components/PaginatedTabs';
+import { BulkToggle } from '@/components/BulkToggle';
+import { getEnabledBulkEmails } from '@/lib/access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +26,7 @@ export default async function AdminPage() {
   }
 
   const o = await getAdminOverview();
+  const bulkEnabled = await getEnabledBulkEmails();
 
   let credits: MillionVerifierCredits | null = null;
   try {
@@ -66,81 +70,49 @@ export default async function AdminPage() {
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-head"><h4>per user</h4></div>
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>user</th>
-                <th>attempts</th>
-                <th>valid</th>
-                <th>accept-all</th>
-                <th>invalid</th>
-                <th>not found</th>
-                <th>domains</th>
-                <th>api calls</th>
-                <th>last active</th>
+      <PaginatedTabs
+        emptyText="no activity yet."
+        tabs={[
+          {
+            id: 'activity',
+            label: 'recent activity',
+            head: (
+              <tr><th>when</th><th>user</th><th>email</th><th>status</th></tr>
+            ),
+            rows: o.recent.map((r) => (
+              <tr key={r.id}>
+                <td className="small">{fmt(r.created_at)}</td>
+                <td>{r.user_email}</td>
+                <td className="mono">{r.email || '—'}</td>
+                <td><StatusBadge status={r.status} /></td>
               </tr>
-            </thead>
-            <tbody>
-              {o.perUser.length === 0 && (
-                <tr><td colSpan={9} className="small">no activity yet.</td></tr>
-              )}
-              {o.perUser.map((u) => (
-                <tr key={u.user_email}>
-                  <td className="cell-email">{u.user_email}</td>
-                  <td>{u.total}</td>
-                  <td>{u.valid}</td>
-                  <td>{u.acceptAll}</td>
-                  <td>{u.invalid}</td>
-                  <td>{u.notFound}</td>
-                  <td>{u.domains}</td>
-                  <td>{u.apiCalls}</td>
-                  <td className="small">{fmt(u.lastActive)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="row" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
-        <div className="card">
-          <div className="card-head"><h4>top domains</h4></div>
-          <div className="tbl-wrap">
-            <table>
-              <thead><tr><th>domain</th><th>lookups</th></tr></thead>
-              <tbody>
-                {o.topDomains.length === 0 && <tr><td colSpan={2} className="small">—</td></tr>}
-                {o.topDomains.map((d) => (
-                  <tr key={d.domain}><td className="cell-domain">{d.domain}</td><td>{d.count}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-head"><h4>recent activity</h4></div>
-          <div className="tbl-wrap">
-            <table>
-              <thead><tr><th>when</th><th>user</th><th>email</th><th>status</th></tr></thead>
-              <tbody>
-                {o.recent.length === 0 && <tr><td colSpan={4} className="small">—</td></tr>}
-                {o.recent.map((r) => (
-                  <tr key={r.id}>
-                    <td className="small">{fmt(r.created_at)}</td>
-                    <td className="cell-email">{r.user_email}</td>
-                    <td className="cell-email">{r.email || '—'}</td>
-                    <td><StatusBadge status={r.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+            )),
+          },
+          {
+            id: 'per-user',
+            label: 'per user',
+            head: (
+              <tr>
+                <th>user</th><th>bulk</th><th>attempts</th><th>valid</th><th>accept-all</th>
+                <th>invalid</th><th>not found</th><th>api calls</th><th>last active</th>
+              </tr>
+            ),
+            rows: o.perUser.map((u) => (
+              <tr key={u.user_email}>
+                <td>{u.user_email}</td>
+                <td><BulkToggle email={u.user_email} enabled={bulkEnabled.has(u.user_email.toLowerCase())} /></td>
+                <td>{u.total}</td>
+                <td>{u.valid}</td>
+                <td>{u.acceptAll}</td>
+                <td>{u.invalid}</td>
+                <td>{u.notFound}</td>
+                <td>{u.apiCalls}</td>
+                <td className="small">{fmt(u.lastActive)}</td>
+              </tr>
+            )),
+          },
+        ]}
+      />
 
       <p className="foot">internal · email workbench · admin</p>
     </div>

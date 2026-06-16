@@ -81,7 +81,6 @@ export interface UserStats {
   acceptAll: number;
   invalid: number;
   notFound: number;
-  domains: number;
   apiCalls: number;
   lastActive: string;
 }
@@ -93,7 +92,6 @@ export interface AdminOverview {
   distinctUsers: number;
   perUser: UserStats[];
   recent: VerificationRow[];
-  topDomains: { domain: string; count: number }[];
 }
 
 /**
@@ -116,13 +114,11 @@ export async function getAdminOverview(): Promise<AdminOverview> {
       distinctUsers: 0,
       perUser: [],
       recent: [],
-      topDomains: [],
     };
   }
 
   const rows = (data ?? []) as VerificationRow[];
-  const byUser = new Map<string, UserStats & { _domains: Set<string> }>();
-  const domainCounts = new Map<string, number>();
+  const byUser = new Map<string, UserStats>();
   let totalApiCalls = 0;
   let totalDiscovered = 0;
 
@@ -137,16 +133,13 @@ export async function getAdminOverview(): Promise<AdminOverview> {
         acceptAll: 0,
         invalid: 0,
         notFound: 0,
-        domains: 0,
         apiCalls: 0,
         lastActive: r.created_at,
-        _domains: new Set<string>(),
       };
       byUser.set(key, u);
     }
     u.total++;
     u.apiCalls += r.api_calls ?? 0;
-    if (r.domain) u._domains.add(r.domain);
     if (r.created_at > u.lastActive) u.lastActive = r.created_at;
     if (r.status === 'valid') u.valid++;
     else if (r.status === 'accept-all') u.acceptAll++;
@@ -155,17 +148,9 @@ export async function getAdminOverview(): Promise<AdminOverview> {
 
     totalApiCalls += r.api_calls ?? 0;
     if (r.status === 'valid' || r.status === 'accept-all') totalDiscovered++;
-    if (r.domain) domainCounts.set(r.domain, (domainCounts.get(r.domain) ?? 0) + 1);
   }
 
-  const perUser: UserStats[] = Array.from(byUser.values())
-    .map(({ _domains, ...rest }) => ({ ...rest, domains: _domains.size }))
-    .sort((a, b) => b.total - a.total);
-
-  const topDomains = Array.from(domainCounts.entries())
-    .map(([domain, count]) => ({ domain, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 15);
+  const perUser: UserStats[] = Array.from(byUser.values()).sort((a, b) => b.total - a.total);
 
   return {
     totalVerifications: rows.length,
@@ -174,6 +159,5 @@ export async function getAdminOverview(): Promise<AdminOverview> {
     distinctUsers: byUser.size,
     perUser,
     recent: rows.slice(0, 50),
-    topDomains,
   };
 }
