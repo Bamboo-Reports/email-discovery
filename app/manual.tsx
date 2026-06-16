@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ConfidenceBar } from '@/components/ConfidenceBar';
@@ -15,6 +15,12 @@ type Result = {
   at: string;
 };
 
+type DomainSuggestion = {
+  name: string;
+  domain: string;
+  icon?: string;
+};
+
 const MODES: { id: Mode; label: string }[] = [
   { id: 'find', label: 'find by name' },
   { id: 'verify', label: 'verify an email' },
@@ -27,6 +33,7 @@ export default function ManualLookup() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [domain, setDomain] = useState('');
+  const [domainSuggestions, setDomainSuggestions] = useState<DomainSuggestion[]>([]);
   const [email, setEmail] = useState('');
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +42,32 @@ export default function ManualLookup() {
 
   const cleanDomain = (d: string) =>
     d.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+
+  useEffect(() => {
+    const q = domain.trim();
+    if (mode !== 'find' || q.length < 2 || q.includes('.')) {
+      setDomainSuggestions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/company-domains?q=${encodeURIComponent(q)}`, {
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        setDomainSuggestions(Array.isArray(data.domains) ? data.domains : []);
+      } catch {
+        if (!controller.signal.aborted) setDomainSuggestions([]);
+      }
+    }, 300);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [domain, mode]);
 
   const canRun =
     !running &&
@@ -110,7 +143,7 @@ export default function ManualLookup() {
   }
 
   return (
-    <div className="card">
+    <div className="card lookup-card">
       <div className="card-body">
         <div className="tabs">
           {MODES.map((m) => (
@@ -155,9 +188,27 @@ export default function ManualLookup() {
               <input
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
-                placeholder="researchnxt.com"
+                placeholder="3m or researchnxt.com"
                 autoComplete="off"
               />
+              {domainSuggestions.length > 0 && (
+                <div className="domain-suggestions">
+                  {domainSuggestions.map((item) => (
+                    <button
+                      key={item.domain}
+                      type="button"
+                      onClick={() => {
+                        setDomain(item.domain);
+                        setDomainSuggestions([]);
+                      }}
+                    >
+                      {item.icon && <img src={item.icon} alt="" />}
+                      <span>{item.name || item.domain}</span>
+                      <strong>{item.domain}</strong>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <button
               className="btn accent"
