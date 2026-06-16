@@ -3,6 +3,7 @@ export type MillionVerifierResult =
   | 'catch_all'
   | 'invalid'
   | 'unknown'
+  | 'unverified'
   | 'disposable'
   | 'error';
 
@@ -19,6 +20,15 @@ export interface MillionVerifierOutput {
   executiontime?: number;
   error?: string;
   livemode?: boolean;
+}
+
+import { logEvent } from './log';
+
+export interface MillionVerifierCredits {
+  credits: number;
+  bulk_credits: number;
+  renewing_credits: number;
+  plan: number;
 }
 
 const DEFAULT_MILLIONVERIFIER_BASE_URL = 'https://api.millionverifier.com/api/v3';
@@ -55,6 +65,37 @@ export async function checkEmailWithMillionVerifier(
     throw new Error(data.error.toLowerCase());
   }
 
+  logEvent('millionverifier', 'verify', {
+    email,
+    result: data.result,
+    quality: data.quality,
+    creditsLeft: data.credits,
+    execMs: data.executiontime,
+  });
+
+  return data;
+}
+
+/**
+ * Fetch the account's remaining MillionVerifier credit balance and plan.
+ * Endpoint: GET /api/v3/credits — does NOT consume a verification credit.
+ */
+export async function getMillionVerifierCredits(): Promise<MillionVerifierCredits> {
+  const url = new URL(`${millionVerifierBaseUrl()}/credits`);
+  url.searchParams.set('api', millionVerifierApiKey());
+
+  const res = await fetch(url, { method: 'GET' });
+  if (!res.ok) {
+    throw new Error(`millionverifier credits failed (${res.status})`);
+  }
+
+  const data = await res.json() as MillionVerifierCredits;
+  logEvent('millionverifier', 'credits', {
+    credits: data.credits,
+    bulkCredits: data.bulk_credits,
+    renewingCredits: data.renewing_credits,
+    plan: data.plan,
+  });
   return data;
 }
 

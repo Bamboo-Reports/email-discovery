@@ -1124,3 +1124,45 @@ tr.row-processing td { color: var(--ink-2); }
   background: var(--persimmon);
   color: #fff;
 }
+
+/* ============================================================
+   App navigation (auth) + ghost button
+   ============================================================ */
+.appnav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: var(--topbar-h);
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.appnav-links { display: flex; align-items: center; gap: 18px; }
+.appnav-brand {
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+  margin-right: 6px;
+}
+.appnav-link {
+  color: var(--ink-3);
+  text-decoration: none;
+  font-size: 13px;
+}
+.appnav-link:hover { color: var(--ink); }
+.appnav-user { display: flex; align-items: center; gap: 14px; }
+.appnav-email { color: var(--ink-4); font-size: 12.5px; }
+
+.btn.ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  height: 32px;
+  cursor: pointer;
+}
+.btn.ghost:hover { border-color: var(--line-strong); color: var(--ink); }
