@@ -188,7 +188,7 @@ export default function ManualLookup() {
               <input
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
-                placeholder="3m or researchnxt.com"
+                placeholder="researchnxt.com"
                 autoComplete="off"
               />
               {domainSuggestions.length > 0 && (
