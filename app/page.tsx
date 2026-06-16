@@ -1,29 +1,47 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { useState } from 'react';
 import BatchLookup from './batch';
+import ManualLookup from './manual';
+
+type Tab = 'manual' | 'bulk';
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'manual', label: 'single lookup' },
+  { id: 'bulk', label: 'bulk csv' },
+];
 
 export default function Page() {
+  const [tab, setTab] = useState<Tab>('manual');
+
   return (
-    <motion.div
-      className="page"
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-    >
+    <div className="page">
       <header className="page-head">
         <div>
-          <h1>Bulk email finder</h1>
+          <h1>{tab === 'manual' ? 'email finder' : 'bulk email finder'}</h1>
           <p className="page-sub">
-            Upload a CSV of names + domains. Pattern detection runs against
-            the live MX record; results are confidence-scored and exportable.
+            {tab === 'manual'
+              ? 'find an address from a name + domain, or verify an email you already have. probes run against the live mx record and the result is confidence-scored.'
+              : 'upload a csv of names + domains. pattern detection runs against the live mx record; results are confidence-scored and exportable.'}
           </p>
         </div>
       </header>
 
-      <BatchLookup />
+      <div className="tabs">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            className={`tab ${tab === t.id ? 'active' : ''}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div>{tab === 'manual' ? <ManualLookup /> : <BatchLookup />}</div>
 
       <p className="foot">internal · email workbench</p>
-    </motion.div>
+    </div>
   );
 }

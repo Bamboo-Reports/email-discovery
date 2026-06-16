@@ -10,8 +10,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Email Finder',
-  description: 'Discover and verify professional emails by name + domain',
+  title: 'email finder',
+  description: 'discover and verify professional emails by name + domain',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
