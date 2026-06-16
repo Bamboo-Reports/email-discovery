@@ -1,4 +1,4 @@
-export type PatternCandidate = { email: string; score: number };
+export type PatternCandidate = { email: string; score: number; index: number };
 
 const SPECS: Array<{ build: (f: string, l: string, d: string) => string; score: number }> = [
   { build: (f, l, d) => `${f}.${l}@${d}`,    score: 0.90 },
@@ -14,10 +14,30 @@ const SPECS: Array<{ build: (f: string, l: string, d: string) => string; score: 
   { build: (f, l, d) => `${f}-${l}@${d}`,    score: 0.12 },
 ];
 
+export const PATTERN_COUNT = SPECS.length;
+
 export function generatePatterns(first: string, last: string, domain: string): PatternCandidate[] {
   const f = first.trim().toLowerCase();
   const l = last.trim().toLowerCase();
-  return SPECS.map(s => ({ email: s.build(f, l, domain), score: s.score }));
+  return SPECS.map((s, index) => ({ email: s.build(f, l, domain), score: s.score, index }));
+}
+
+/**
+ * Generate patterns, but with the spec at `preferredIndex` moved to the front so
+ * it is checked first. Used to apply a domain's previously-learned email format
+ * before falling back to the rest of the candidates.
+ */
+export function generatePatternsPreferring(
+  first: string,
+  last: string,
+  domain: string,
+  preferredIndex: number,
+): PatternCandidate[] {
+  const patterns = generatePatterns(first, last, domain);
+  if (preferredIndex <= 0 || preferredIndex >= patterns.length) return patterns;
+  const [preferred] = patterns.splice(preferredIndex, 1);
+  patterns.unshift(preferred);
+  return patterns;
 }
 
 export function bestGuess(first: string, last: string, domain: string): PatternCandidate {

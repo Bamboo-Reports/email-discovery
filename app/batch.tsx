@@ -220,6 +220,7 @@ export default function BatchLookup() {
             firstName: row.firstName,
             lastName: row.lastName,
             domain: row.domain,
+            source: 'bulk',
           }),
           signal: ctrl.signal,
         });

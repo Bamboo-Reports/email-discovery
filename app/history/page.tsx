@@ -1,0 +1,74 @@
+import { getMyHistory } from '@/lib/verifications';
+import { StatusBadge } from '@/components/StatusBadge';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+function fmt(ts: string) {
+  return new Date(ts).toLocaleString();
+}
+
+export default async function HistoryPage() {
+  const rows = await getMyHistory();
+
+  const total = rows.length;
+  const valid = rows.filter((r) => r.status === 'valid').length;
+  const acceptAll = rows.filter((r) => r.status === 'accept-all').length;
+  const apiCalls = rows.reduce((n, r) => n + (r.api_calls ?? 0), 0);
+
+  return (
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <h1>your history</h1>
+          <p className="page-sub">every lookup and verification you&apos;ve run, newest first (last {total}).</p>
+        </div>
+      </header>
+
+      <div className="stat-strip">
+        <div className="stat"><div className="stat-value">{total}</div><div className="stat-label">attempts</div></div>
+        <div className="stat"><div className="stat-value">{valid}</div><div className="stat-label">valid</div></div>
+        <div className="stat"><div className="stat-value">{acceptAll}</div><div className="stat-label">accept-all</div></div>
+        <div className="stat"><div className="stat-value">{apiCalls}</div><div className="stat-label">api calls</div></div>
+      </div>
+
+      <div className="card">
+        <div className="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>when</th>
+                <th>query</th>
+                <th>email</th>
+                <th>status</th>
+                <th>conf.</th>
+                <th>src</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr><td colSpan={6} className="small">no lookups yet — run one from the workbench.</td></tr>
+              )}
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="small">{fmt(r.created_at)}</td>
+                  <td className="cell-name">
+                    {r.kind === 'find'
+                      ? `${r.first_name ?? ''} ${r.last_name ?? ''} · ${r.domain ?? ''}`.trim()
+                      : (r.email || r.domain || '—')}
+                  </td>
+                  <td className="cell-email">{r.email || '—'}</td>
+                  <td><StatusBadge status={r.status} /></td>
+                  <td className="conf-pct">{Math.round((r.confidence ?? 0) * 100)}%</td>
+                  <td className="small">{r.source}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p className="foot">internal · email workbench</p>
+    </div>
+  );
+}
