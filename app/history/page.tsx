@@ -1,5 +1,6 @@
 import { getMyHistory } from '@/lib/verifications';
 import { StatusBadge } from '@/components/StatusBadge';
+import { PaginatedTabs } from '@/components/PaginatedTabs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,41 +33,35 @@ export default async function HistoryPage() {
         <div className="stat"><div className="stat-value">{apiCalls}</div><div className="stat-label">api calls</div></div>
       </div>
 
-      <div className="card">
-        <div className="tbl-wrap">
-          <table>
-            <thead>
+      <PaginatedTabs
+        pageSize={15}
+        emptyText="no lookups yet — run one from the workbench."
+        tabs={[
+          {
+            id: 'history',
+            label: 'history',
+            head: (
               <tr>
-                <th>when</th>
-                <th>query</th>
-                <th>email</th>
-                <th>status</th>
-                <th>conf.</th>
-                <th>src</th>
+                <th>when</th><th>query</th><th>email</th><th>status</th><th>conf.</th><th>src</th>
               </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr><td colSpan={6} className="small">no lookups yet — run one from the workbench.</td></tr>
-              )}
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td className="small">{fmt(r.created_at)}</td>
-                  <td className="cell-name">
-                    {r.kind === 'find'
-                      ? `${r.first_name ?? ''} ${r.last_name ?? ''} · ${r.domain ?? ''}`.trim()
-                      : (r.email || r.domain || '—')}
-                  </td>
-                  <td className="cell-email">{r.email || '—'}</td>
-                  <td><StatusBadge status={r.status} /></td>
-                  <td className="conf-pct">{Math.round((r.confidence ?? 0) * 100)}%</td>
-                  <td className="small">{r.source}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            ),
+            rows: rows.map((r) => (
+              <tr key={r.id}>
+                <td className="small">{fmt(r.created_at)}</td>
+                <td>
+                  {r.kind === 'find'
+                    ? `${r.first_name ?? ''} ${r.last_name ?? ''} · ${r.domain ?? ''}`.trim()
+                    : (r.email || r.domain || '—')}
+                </td>
+                <td className="mono">{r.email || '—'}</td>
+                <td><StatusBadge status={r.status} /></td>
+                <td className="conf-pct">{Math.round((r.confidence ?? 0) * 100)}%</td>
+                <td className="small">{r.source}</td>
+              </tr>
+            )),
+          },
+        ]}
+      />
 
       <p className="foot">internal · email workbench</p>
     </div>

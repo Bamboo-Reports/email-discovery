@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findEmail } from '@/lib/finder';
 import { recordVerification } from '@/lib/verifications';
+import { canUseBulk } from '@/lib/access';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,6 +12,16 @@ export async function POST(req: NextRequest) {
     const { firstName, lastName, domain, source } = await req.json();
     if (!firstName || !lastName || !domain) {
       return NextResponse.json({ error: 'firstName, lastName, domain required' }, { status: 400 });
+    }
+
+    if (source === 'bulk') {
+      const supabase = createSupabaseServerClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!(await canUseBulk(user?.email))) {
+        return NextResponse.json({ error: 'bulk access not enabled' }, { status: 403 });
+      }
     }
     const result = await findEmail(String(firstName), String(lastName), String(domain));
 

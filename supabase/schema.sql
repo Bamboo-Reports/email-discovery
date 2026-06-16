@@ -36,3 +36,13 @@ create policy "own rows: select" on public.verifications
 drop policy if exists "own rows: insert" on public.verifications;
 create policy "own rows: insert" on public.verifications
   for insert with check (auth.uid() = user_id);
+
+-- Bulk-feature access, controlled from the admin panel. Opt-in: a row with
+-- enabled=true grants the bulk CSV feature. RLS on + no policies => only the
+-- service-role key (admin client) can read/write it.
+create table if not exists public.bulk_access (
+  email      text primary key,
+  enabled    boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+alter table public.bulk_access enable row level security;
