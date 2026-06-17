@@ -18,6 +18,11 @@ export interface VerificationRow {
   pattern_index: number | null;
   api_calls: number;
   credits_left: number | null;
+  // Per-provider verdicts (BOTH mode). Null when a provider didn't run.
+  reacher_status: string | null;
+  reacher_confidence: number | null;
+  millionverifier_status: string | null;
+  millionverifier_confidence: number | null;
 }
 
 export type VerificationInsert = Omit<

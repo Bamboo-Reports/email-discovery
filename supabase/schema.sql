@@ -1,7 +1,10 @@
 -- Email engine: per-user verification audit log.
 -- Run this in the Supabase SQL editor (or `supabase db push`).
 
-create table if not exists public.verifications (
+-- Recreated to add per-provider columns (RR + MV "BOTH" mode). Drops existing data.
+drop table if exists public.verifications cascade;
+
+create table public.verifications (
   id            uuid primary key default gen_random_uuid(),
   user_id       uuid not null references auth.users (id) on delete cascade,
   user_email    text,
@@ -12,11 +15,17 @@ create table if not exists public.verifications (
   last_name     text,
   domain        text,
   email         text not null default '',
+  -- headline verdict (reacher in BOTH mode, otherwise the single active provider)
   status        text not null check (status in ('valid', 'accept-all', 'invalid', 'not found')),
   confidence    numeric not null default 0,
   pattern_index int,
   api_calls     int not null default 0,
-  credits_left  int
+  credits_left  int,
+  -- per-provider verdicts; null when that provider didn't run
+  reacher_status             text,
+  reacher_confidence         numeric,
+  millionverifier_status     text,
+  millionverifier_confidence numeric
 );
 
 create index if not exists verifications_user_created_idx

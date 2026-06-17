@@ -7,10 +7,14 @@ import { ConfidenceBar } from '@/components/ConfidenceBar';
 
 type Mode = 'find' | 'verify';
 
+type Provider = { status: string; confidence: number } | null;
+
 type Result = {
   email: string;
   status: 'valid' | 'invalid' | 'accept-all' | 'not found';
   confidence: number;
+  rr: Provider;
+  mv: Provider;
   title: string;
   at: string;
 };
@@ -39,6 +43,7 @@ export default function ManualLookup() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [copied, setCopied] = useState(false);
+  const [mvChecking, setMvChecking] = useState(false);
 
   const cleanDomain = (d: string) =>
     d.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
@@ -110,6 +115,8 @@ export default function ManualLookup() {
         email: data.email ?? '',
         status: (data.status ?? 'not found') as Result['status'],
         confidence: data.confidence ?? 0,
+        rr: data.rr ?? null,
+        mv: data.mv ?? null,
         title,
         at: new Date().toLocaleTimeString(),
       });
@@ -132,6 +139,25 @@ export default function ManualLookup() {
       setTimeout(() => setCopied(false), 1400);
     } catch {
       /* clipboard unavailable */
+    }
+  }
+
+  async function checkWithMv() {
+    if (!result?.email || mvChecking) return;
+    setMvChecking(true);
+    try {
+      const res = await fetch('/api/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: result.email, mvOnly: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `request failed (${res.status})`);
+      setResult((r) => (r ? { ...r, mv: data.mv ?? null } : r));
+    } catch (e: any) {
+      setError(e?.message ?? 'MillionVerifier check failed');
+    } finally {
+      setMvChecking(false);
     }
   }
 
@@ -289,19 +315,62 @@ export default function ManualLookup() {
               </div>
 
               <div className="kv">
-                <strong>status</strong>
-                <span>
-                  <StatusBadge status={result.status} />
-                </span>
-              </div>
+                <strong>{mode === 'verify' && result.status === 'accept-all' ? 'certainty' : 'status'}</strong>
+                <div className="verdicts">
+                  {result.rr && (
+                    <div className="verdict-tile">
+                      <span className="vt-label">reacher</span>
+                      <span className="vt-body">
+                        <StatusBadge status={result.rr.status} />
+                        <ConfidenceBar value={result.rr.confidence} small />
+                      </span>
+                    </div>
+                  )}
 
-              <div className="kv">
-                <strong>
-                  {mode === 'verify' && result.status === 'accept-all'
-                    ? 'certainty'
-                    : 'confidence'}
-                </strong>
-                <ConfidenceBar value={result.confidence} />
+                  {result.mv ? (
+                    <div className="verdict-tile">
+                      <span className="vt-label">millionverifier</span>
+                      <span className="vt-body">
+                        <StatusBadge status={result.mv.status} />
+                        <ConfidenceBar value={result.mv.confidence} small />
+                      </span>
+                    </div>
+                  ) : result.rr && result.email ? (
+                    <button
+                      type="button"
+                      className="verdict-tile verdict-cta"
+                      onClick={checkWithMv}
+                      disabled={mvChecking}
+                      title="Verify this address with MillionVerifier (uses 1 credit)"
+                    >
+                      <span className="vt-label">millionverifier</span>
+                      <span className="vt-cta-text">
+                        {mvChecking ? (
+                          <>
+                            <Spinner /> checking…
+                          </>
+                        ) : (
+                          <>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M12 5v14M5 12h14" />
+                            </svg>
+                            check now
+                          </>
+                        )}
+                      </span>
+                    </button>
+                  ) : null}
+
+                  {!result.rr && !result.mv && (
+                    <div className="verdict-tile">
+                      <span className="vt-label">result</span>
+                      <span className="vt-body">
+                        <StatusBadge status={result.status} />
+                        <ConfidenceBar value={result.confidence} small />
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
         )}

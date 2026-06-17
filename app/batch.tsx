@@ -6,70 +6,90 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { ConfidenceBar } from '@/components/ConfidenceBar';
 import { generatePatterns } from '@/lib/patterns';
 
-type DomainHit =
-  | { status: 'valid' | 'accept-all'; patternIndex: number; confidence: number }
-  | { status: 'not found' };
+type Provider = { status: string; confidence: number } | null;
 
-const CONCURRENCY = 8;
-const ROW_TIMEOUT_MS = 10_000;
+type DomainHit =
+  | { status: 'valid' | 'accept-all'; patternIndex: number; confidence: number; rr: Provider; mv: Provider }
+  | { status: 'not found'; rr: Provider; mv: Provider };
+
+// Reacher probes real SMTP through one proxy IP; parallel lookups get the IP
+// throttled by Google/Microsoft (false invalids/unknowns). Serialize to 1.
+const CONCURRENCY = 1;
+// A reacher-fail domain can do ~11 SMTP probes + a full MV sweep, so a single row
+// can run ~45s+. Keep the client timeout well above that or rows get aborted and
+// wrongly shown as "not found" while the server is still resolving them.
+const ROW_TIMEOUT_MS = 120_000;
 const MAX_VISIBLE_ROWS = 10;
+const PREVIEW_ROWS = 6;
 
 type RowState = 'pending' | 'processing' | 'done';
 type InRow = { uuid: string; firstName: string; lastName: string; domain: string };
-type Out = { email: string; status: 'valid' | 'accept-all' | 'not found'; confidence: number } | null;
+type Out = { email: string; status: 'valid' | 'accept-all' | 'not found'; confidence: number; rr: Provider; mv: Provider } | null;
 
-const REQUIRED = ['uuid', 'first name', 'last name', 'domain'] as const;
-const REQUIRED_LABEL = 'uuid, first name, last name, domain';
+type Parsed = { headers: string[]; rows: Record<string, string>[] };
+type Mapping = { uuid: string; firstName: string; lastName: string; domain: string };
 
-function parseCSVLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQ) {
-      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-      else if (c === '"') inQ = false;
-      else cur += c;
-    } else {
-      if (c === '"') inQ = true;
-      else if (c === ',') { out.push(cur); cur = ''; }
-      else cur += c;
-    }
-  }
-  out.push(cur);
-  return out;
-}
+const FIELD_DEFS: { key: keyof Mapping; label: string; required: boolean; aliases: string[] }[] = [
+  { key: 'uuid', label: 'uuid', required: false, aliases: ['uuid', 'id', 'uid', 'recordid'] },
+  { key: 'firstName', label: 'first name', required: true, aliases: ['firstname', 'first', 'fname', 'givenname'] },
+  { key: 'lastName', label: 'last name', required: true, aliases: ['lastname', 'last', 'lname', 'surname', 'familyname'] },
+  { key: 'domain', label: 'domain', required: true, aliases: ['domain', 'website', 'companydomain', 'url', 'site', 'company'] },
+];
 
-function parseCSV(text: string): { headers: string[]; rows: Record<string, string>[] } {
-  const lines = text.replace(/\r\n/g, '\n').split('\n').filter((l) => l.length > 0);
-  if (!lines.length) return { headers: [], rows: [] };
-  const headers = parseCSVLine(lines[0]).map((h) => h.trim());
-  const rows = lines.slice(1).map((line) => {
-    const cols = parseCSVLine(line);
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = (cols[i] ?? '').trim(); });
-    return row;
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// Parse .csv / .xlsx / .xls into headers + row objects (SheetJS handles all three).
+// Loaded lazily so the ~400KB parser stays out of the initial page bundle.
+async function parseFile(file: File): Promise<Parsed> {
+  const XLSX = await import('xlsx');
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return { headers: [], rows: [] };
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, blankrows: false, defval: '' });
+  if (!aoa.length) return { headers: [], rows: [] };
+  const headers = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim());
+  const rows = aoa.slice(1).map((r) => {
+    const cols = r as unknown[];
+    const o: Record<string, string> = {};
+    headers.forEach((h, i) => { o[h] = String(cols[i] ?? '').trim(); });
+    return o;
   });
   return { headers, rows };
 }
 
-function pick(row: Record<string, string>, name: string): string {
-  const want = name.toLowerCase().trim();
-  for (const [k, v] of Object.entries(row)) {
-    if (k.toLowerCase().trim() === want) return v;
-  }
-  return '';
+// Best-effort auto-match of columns to fields by (normalized) header name.
+function guessMapping(headers: string[]): Mapping {
+  const used = new Set<string>();
+  const pickFor = (aliases: string[]): string => {
+    for (const a of aliases) {
+      const hit = headers.find((h) => !used.has(h) && norm(h) === a);
+      if (hit) { used.add(hit); return hit; }
+    }
+    for (const a of aliases) {
+      const hit = headers.find((h) => !used.has(h) && norm(h).includes(a));
+      if (hit) { used.add(hit); return hit; }
+    }
+    return '';
+  };
+  const m = { uuid: '', firstName: '', lastName: '', domain: '' } as Mapping;
+  for (const f of FIELD_DEFS) m[f.key] = pickFor(f.aliases);
+  return m;
 }
 
 function toCSV(rows: InRow[], results: Out[]): string {
-  const header = ['UUID', 'First Name', 'Last Name', 'Domain', 'Email', 'Status', 'Confidence'];
+  const header = [
+    'UUID', 'First Name', 'Last Name', 'Domain', 'Email', 'Status', 'Confidence',
+    'RR Status', 'RR Confidence', 'MV Status', 'MV Confidence',
+  ];
   const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const conf = (p: Provider) => (p ? p.confidence.toFixed(2) : '');
   const body = rows.map((r, i) => {
     const out = results[i];
     return [
       r.uuid, r.firstName, r.lastName, r.domain,
       out?.email ?? '', out?.status ?? 'not found', (out?.confidence ?? 0).toFixed(2),
+      out?.rr?.status ?? '', conf(out?.rr ?? null), out?.mv?.status ?? '', conf(out?.mv ?? null),
     ].map(esc).join(',');
   });
   return [header.join(','), ...body].join('\n');
@@ -83,6 +103,8 @@ export default function BatchLookup() {
   const [activeIds, setActiveIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [parsed, setParsed] = useState<Parsed | null>(null);
+  const [mapping, setMapping] = useState<Mapping>({ uuid: '', firstName: '', lastName: '', domain: '' });
   const fileRef = useRef<HTMLInputElement>(null);
 
   const doneCount = useMemo(() => results.filter((r) => r !== null).length, [results]);
@@ -157,44 +179,47 @@ export default function BatchLookup() {
     setRows([]);
     setResults([]);
     setActiveIds(new Set());
+    setParsed(null);
     setImporting(true);
-    await new Promise((r) => setTimeout(r, 420));
+    await new Promise((r) => setTimeout(r, 300));
     try {
-      if (!/\.csv$/i.test(file.name) && file.type && !/csv/i.test(file.type)) {
-        throw new Error(`not a csv file. got "${file.name}".`);
+      if (!/\.(csv|xlsx|xls)$/i.test(file.name)) {
+        throw new Error(`unsupported file "${file.name}". upload a .csv or .xlsx file.`);
       }
-      const text = await file.text();
-      const { headers, rows: parsedRows } = parseCSV(text);
-      if (!headers.length) {
-        throw new Error(`file is empty. required columns: ${REQUIRED_LABEL}.`);
-      }
-      const headerSet = new Set(headers.map((h) => h.toLowerCase().trim()));
-      const missing = REQUIRED.filter((r) => !headerSet.has(r));
-      if (missing.length) {
-        const missingLabels = missing
-          .map((m) => m.toLowerCase())
-          .join(', ');
-        throw new Error(
-          `rejected — missing required column(s): ${missingLabels}. ` +
-          `required: ${REQUIRED_LABEL}. found: ${headers.join(', ').toLowerCase() || '(none)'}.`,
-        );
-      }
-      if (!parsedRows.length) {
-        throw new Error('csv has headers but no data rows.');
-      }
-      const inRows: InRow[] = parsedRows.map((r) => ({
-        uuid: pick(r, 'UUID'),
-        firstName: pick(r, 'First Name'),
-        lastName: pick(r, 'Last Name'),
-        domain: pick(r, 'Domain'),
-      }));
-      setRows(inRows);
-      setResults(Array(inRows.length).fill(null));
+      const p = await parseFile(file);
+      if (!p.headers.length) throw new Error('file is empty or has no header row.');
+      if (!p.rows.length) throw new Error('file has headers but no data rows.');
+      setParsed(p);
+      setMapping(guessMapping(p.headers));
     } catch (e: any) {
-      setError(e.message ?? 'failed to import csv');
+      setError(e.message ?? 'failed to read file');
     } finally {
       setImporting(false);
     }
+  }
+
+  // Apply the column mapping, then sort by domain so same-domain lookups run
+  // back-to-back — maximizes learned-format/catch-all reuse and eases throttling.
+  function confirmMapping() {
+    if (!parsed) return;
+    const missing = FIELD_DEFS.filter((f) => f.required && !mapping[f.key]).map((f) => f.label);
+    if (missing.length) {
+      setError(`map these column(s) first: ${missing.join(', ')}`);
+      return;
+    }
+    setError(null);
+    const get = (row: Record<string, string>, key: keyof Mapping) =>
+      mapping[key] ? (row[mapping[key]] ?? '').trim() : '';
+    const inRows: InRow[] = parsed.rows.map((row, i) => ({
+      uuid: get(row, 'uuid') || `row-${i + 1}`,
+      firstName: get(row, 'firstName'),
+      lastName: get(row, 'lastName'),
+      domain: get(row, 'domain'),
+    }));
+    inRows.sort((a, b) => a.domain.toLowerCase().localeCompare(b.domain.toLowerCase()));
+    setRows(inRows);
+    setResults(Array(inRows.length).fill(null));
+    setParsed(null);
   }
 
   async function run() {
@@ -224,18 +249,18 @@ export default function BatchLookup() {
           }),
           signal: ctrl.signal,
         });
-        if (!res.ok) return { status: 'not found' };
+        if (!res.ok) return { status: 'not found', rr: null, mv: null };
         const data = await res.json();
         const status = (data.status || 'not found') as 'valid' | 'accept-all' | 'not found';
-        if (status === 'not found') return { status: 'not found' };
+        if (status === 'not found') return { status: 'not found', rr: data.rr ?? null, mv: data.mv ?? null };
         const patterns = generatePatterns(row.firstName, row.lastName, row.domain);
         const email = data.email || '';
         const confidence = data.confidence ?? 0;
         const idx = status === 'valid' ? patterns.findIndex((p) => p.email === email) : 0;
         if (idx < 0) return null;
-        return { status, patternIndex: idx, confidence };
+        return { status, patternIndex: idx, confidence, rr: data.rr ?? null, mv: data.mv ?? null };
       } catch {
-        return { status: 'not found' };
+        return { status: 'not found', rr: null, mv: null };
       } finally {
         clearTimeout(timer);
       }
@@ -243,13 +268,15 @@ export default function BatchLookup() {
 
     const applyHit = (i: number, row: InRow, hit: DomainHit) => {
       if (hit.status === 'not found') {
-        next[i] = { email: '', status: 'not found', confidence: 0 };
+        next[i] = { email: '', status: 'not found', confidence: 0, rr: hit.rr, mv: hit.mv };
       } else {
         const patterns = generatePatterns(row.firstName, row.lastName, row.domain);
         next[i] = {
           email: patterns[hit.patternIndex].email,
           status: hit.status,
           confidence: hit.confidence,
+          rr: hit.rr,
+          mv: hit.mv,
         };
       }
     };
@@ -262,12 +289,12 @@ export default function BatchLookup() {
         markActive(i, true);
         try {
           if (!row.firstName || !row.lastName || !row.domain) {
-            next[i] = { email: '', status: 'not found', confidence: 0 };
+            next[i] = { email: '', status: 'not found', confidence: 0, rr: null, mv: null };
             continue;
           }
           const hit = await lookupDomain(row);
           if (hit) applyHit(i, row, hit);
-          else next[i] = { email: '', status: 'not found', confidence: 0 };
+          else next[i] = { email: '', status: 'not found', confidence: 0, rr: null, mv: null };
         } finally {
           markActive(i, false);
           setResults([...next]);
@@ -285,6 +312,7 @@ export default function BatchLookup() {
     setResults([]);
     setActiveIds(new Set());
     setError(null);
+    setParsed(null);
   }
 
   function download() {
@@ -301,7 +329,7 @@ export default function BatchLookup() {
   return (
     <div className="card">
       <div className="card-body">
-          {rows.length === 0 && !importing && (
+          {!parsed && rows.length === 0 && !importing && (
             <div
               className={`drop ${dragging ? 'active' : ''}`}
               onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -322,17 +350,16 @@ export default function BatchLookup() {
                 </svg>
               </div>
               <div>
-                <strong>drop a csv here</strong>
+                <strong>drop a CSV or Excel file here</strong>
               </div>
               <div className="small" style={{ marginTop: 10 }}>
-                or click to choose · required columns:{' '}
-                <kbd>uuid</kbd> <kbd>first name</kbd> <kbd>last name</kbd>{' '}
-                <kbd>domain</kbd>
+                or click to choose · <kbd>.csv</kbd> <kbd>.xlsx</kbd> · you&apos;ll map the
+                columns next
               </div>
               <input
                 ref={fileRef}
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 style={{ display: 'none' }}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
@@ -344,15 +371,95 @@ export default function BatchLookup() {
 
           {importing && (
             <div className="drop">
-              <div className="drop-icon">+</div>
+              <div className="drop-icon">
+                <Spinner />
+              </div>
               <div>
-                <strong>importing csv...</strong>
+                <strong>reading file…</strong>
               </div>
               <div className="small" style={{ marginTop: 8 }}>parsing rows</div>
             </div>
           )}
 
         {error && <div className="err">{error}</div>}
+
+          {parsed && rows.length === 0 && (
+            <div className="map-panel">
+              <div className="map-head">
+                <div>
+                  <h3>map your columns</h3>
+                  <p>
+                    matched <strong>{parsed.rows.length}</strong> rows · pick which column feeds
+                    each field, then verify
+                  </p>
+                </div>
+                <span className="map-filecount">{parsed.headers.length} columns</span>
+              </div>
+
+              <div className="map-grid">
+                {FIELD_DEFS.map((f) => (
+                  <div className="field" key={f.key}>
+                    <label>
+                      {f.label}
+                      {f.required ? <span className="req">●</span> : <span className="opt"> optional</span>}
+                    </label>
+                    <select
+                      value={mapping[f.key]}
+                      onChange={(e) => setMapping((m) => ({ ...m, [f.key]: e.target.value }))}
+                    >
+                      <option value="">— not mapped —</option>
+                      {parsed.headers.map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              <div className="map-preview-label">
+                preview · first {Math.min(PREVIEW_ROWS, parsed.rows.length)} rows
+              </div>
+              <div className="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      {parsed.headers.map((h) => {
+                        const mapped = FIELD_DEFS.find((f) => mapping[f.key] === h);
+                        return (
+                          <th key={h} className={mapped ? 'col-mapped' : ''}>
+                            {h}
+                            {mapped && <span className="col-tag">{mapped.label}</span>}
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsed.rows.slice(0, PREVIEW_ROWS).map((r, i) => (
+                      <tr key={i}>
+                        {parsed.headers.map((h) => (
+                          <td key={h} className="mono small">
+                            <span className="trunc" title={r[h]}>{r[h] || '—'}</span>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="toolbar">
+                <button className="btn primary" onClick={confirmMapping}>
+                  verify {parsed.rows.length} rows
+                </button>
+                <div className="small" style={{ color: 'var(--ink-4)' }}>
+                  rows are sorted by domain automatically
+                </div>
+                <div className="spacer" />
+                <button className="btn" onClick={reset}>cancel</button>
+              </div>
+            </div>
+          )}
 
           {rows.length > 0 && (
             <div>
@@ -486,6 +593,7 @@ export default function BatchLookup() {
                       <th>domain</th>
                       <th>email</th>
                       <th style={{ width: 110 }}>status</th>
+                      <th style={{ width: 110 }}>mv</th>
                       <th style={{ width: 90 }}>confidence</th>
                     </tr>
                   </thead>
@@ -530,6 +638,13 @@ export default function BatchLookup() {
                               <StatusBadge status={out.status} />
                             ) : state === 'processing' ? (
                               <StatusBadge status="pending" />
+                            ) : (
+                              <span style={{ color: 'var(--ink-4)' }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            {out?.mv ? (
+                              <StatusBadge status={out.mv.status} />
                             ) : (
                               <span style={{ color: 'var(--ink-4)' }}>—</span>
                             )}

@@ -12,6 +12,8 @@ const SPECS: Array<{ build: (f: string, l: string, d: string) => string; score: 
   { build: (f, l, d) => `${l}${f[0]}@${d}`,  score: 0.20 },
   { build: (f, l, d) => `${f}_${l}@${d}`,    score: 0.15 },
   { build: (f, l, d) => `${f}-${l}@${d}`,    score: 0.12 },
+  // Appended (not inserted) so existing learned-format indices stay valid.
+  { build: (f, l, d) => `${f}.${l[0]}@${d}`, score: 0.48 },
 ];
 
 export const PATTERN_COUNT = SPECS.length;
