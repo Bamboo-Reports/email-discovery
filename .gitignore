@@ -9,6 +9,9 @@ out
 # build artifacts
 tsconfig.tsbuildinfo
 
+# reacher CLI binary — local testing only; production runs the Docker backend
+reacher-binary/
+
 # local tooling (Claude Code harness, agent configs, skill locks)
 .claude/
 .agents/

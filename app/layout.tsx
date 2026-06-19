@@ -22,10 +22,23 @@ export const metadata: Metadata = {
   description: 'discover and verify professional emails by name + domain',
 };
 
+const themeScript = `
+(() => {
+  try {
+    const stored = localStorage.getItem('theme');
+    const theme = stored === 'light' || stored === 'dark'
+      ? stored
+      : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.dataset.theme = theme;
+  } catch {}
+})();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${dmSans.variable} ${jetbrainsMono.variable}`}>
       <body>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <NavBar />
         {children}
       </body>

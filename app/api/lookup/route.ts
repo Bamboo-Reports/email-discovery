@@ -37,6 +37,10 @@ export async function POST(req: NextRequest) {
       pattern_index: result.patternIndex ?? null,
       api_calls: result.apiCalls,
       credits_left: result.creditsLeft ?? null,
+      reacher_status: result.rr?.status ?? null,
+      reacher_confidence: result.rr?.confidence ?? null,
+      millionverifier_status: result.mv?.status ?? null,
+      millionverifier_confidence: result.mv?.confidence ?? null,
     });
 
     return NextResponse.json(result);

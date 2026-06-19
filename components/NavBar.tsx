@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { isAdminEmail } from '@/lib/supabase/admin';
+import { ThemeToggle } from './ThemeToggle';
 
 /**
  * Top navigation. Server component — renders nothing for signed-out visitors
@@ -25,6 +26,7 @@ export async function NavBar() {
       </div>
       <div className="appnav-user">
         <span className="appnav-email">{user.email}</span>
+        <ThemeToggle />
         <form action="/auth/signout" method="post">
           <button type="submit" className="btn ghost">sign out</button>
         </form>

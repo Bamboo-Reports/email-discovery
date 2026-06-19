@@ -1,4 +1,5 @@
 import { getMyHistory } from '@/lib/verifications';
+import { getMyBulkExports } from '@/lib/bulkExports';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PaginatedTabs } from '@/components/PaginatedTabs';
 
@@ -10,7 +11,10 @@ function fmt(ts: string) {
 }
 
 export default async function HistoryPage() {
-  const rows = await getMyHistory();
+  const [rows, bulkExports] = await Promise.all([
+    getMyHistory(),
+    getMyBulkExports(),
+  ]);
 
   const total = rows.length;
   const valid = rows.filter((r) => r.status === 'valid').length;
@@ -22,7 +26,7 @@ export default async function HistoryPage() {
       <header className="page-head">
         <div>
           <h1>your history</h1>
-          <p className="page-sub">every lookup and verification you&apos;ve run, newest first (last {total}).</p>
+          <p className="page-sub">every lookup, verification, and saved bulk export.</p>
         </div>
       </header>
 
@@ -34,12 +38,12 @@ export default async function HistoryPage() {
       </div>
 
       <PaginatedTabs
-        pageSize={15}
+        pageSize={5}
         emptyText="no lookups yet — run one from the workbench."
         tabs={[
           {
-            id: 'history',
-            label: 'history',
+            id: 'all',
+            label: 'all',
             head: (
               <tr>
                 <th>when</th><th>query</th><th>email</th><th>status</th><th>conf.</th><th>src</th>
@@ -57,6 +61,26 @@ export default async function HistoryPage() {
                 <td><StatusBadge status={r.status} /></td>
                 <td className="conf-pct">{Math.round((r.confidence ?? 0) * 100)}%</td>
                 <td className="small">{r.source}</td>
+              </tr>
+            )),
+          },
+          {
+            id: 'bulk-history',
+            label: 'bulk history',
+            head: (
+              <tr>
+                <th>when</th><th>file</th><th></th>
+              </tr>
+            ),
+            rows: bulkExports.map((r) => (
+              <tr key={r.id}>
+                <td className="small">{fmt(r.created_at)}</td>
+                <td className="mono">{r.filename}</td>
+                <td>
+                  <a className="btn ghost" href={`/api/bulk-exports/${r.id}/download`}>
+                    download
+                  </a>
+                </td>
               </tr>
             )),
           },

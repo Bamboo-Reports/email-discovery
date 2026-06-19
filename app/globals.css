@@ -65,6 +65,46 @@
   --radius-lg: 16px;
 }
 
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --paper: #171717;
+  --paper-2: #0f0f10;
+  --paper-3: #242424;
+
+  --ink: #f4f4f5;
+  --ink-2: #d4d4d8;
+  --ink-3: #a1a1aa;
+  --ink-4: #71717a;
+
+  --line: #2f2f31;
+  --line-strong: #444447;
+  --line-soft: #242427;
+
+  --persimmon: #f39122;
+  --persimmon-ink: #ffb15c;
+  --persimmon-soft: rgba(243, 145, 34, 0.16);
+
+  --accent: #f5a245;
+  --accent-ink: #ffc078;
+  --accent-soft: rgba(245, 162, 69, 0.14);
+
+  --teal: #7dd3fc;
+
+  --sage: #4ade80;
+  --sage-soft: rgba(74, 222, 128, 0.12);
+  --amber: #fbbf24;
+  --amber-soft: rgba(251, 191, 36, 0.13);
+  --brick: #f87171;
+  --brick-soft: rgba(248, 113, 113, 0.12);
+  --slate: #94a3b8;
+  --slate-soft: rgba(148, 163, 184, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.42);
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -703,38 +743,26 @@ input:focus, select:focus, textarea:focus {
 .email-val .copy-mini:hover { background: var(--persimmon-soft); color: var(--persimmon-ink); border-color: var(--persimmon); }
 
 /* ===========================================================
-   STATUS BADGE
+   STATUS TEXT
    =========================================================== */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 11px 4px 9px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 600;
+.status-text {
+  display: inline-block;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 700;
   letter-spacing: 0;
-  border: 1px solid transparent;
-  text-transform: capitalize;
   white-space: nowrap;
   max-width: 100%;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   vertical-align: middle;
 }
-.badge::before {
-  content: '';
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
-}
-.badge-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.badge.valid { background: var(--sage-soft); color: var(--sage); border-color: rgba(21, 128, 61, 0.2); }
-.badge.accept-all { background: var(--amber-soft); color: var(--amber); border-color: rgba(180, 83, 9, 0.2); }
-.badge.not-found,
-.badge.invalid { background: var(--brick-soft); color: var(--brick); border-color: rgba(220, 38, 38, 0.2); }
-.badge.pending { background: var(--slate-soft); color: var(--slate); border-color: rgba(100, 116, 139, 0.2); }
-.badge.pending::before { opacity: 0.55; }
+.status-text.valid { color: var(--sage); }
+.status-text.accept-all { color: var(--amber); }
+.status-text.not-found,
+.status-text.invalid { color: var(--brick); }
+.status-text.pending { color: var(--slate); }
 
 /* ===========================================================
    CONFIDENCE
@@ -751,6 +779,123 @@ input:focus, select:focus, textarea:focus {
 .conf-pct.med  { color: var(--amber); }
 .conf-pct.low  { color: var(--brick); }
 .conf-pct.small { font-size: 12px; }
+
+/* ===========================================================
+   PROVIDER VERDICTS — per-engine breakdown + on-demand MV check
+   =========================================================== */
+.verdicts { display: flex; flex-wrap: wrap; gap: 10px; }
+.verdict-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px 14px;
+  min-width: 168px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper-2);
+}
+.verdict-tile .vt-label {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-4);
+}
+.verdict-tile .vt-body { display: inline-flex; align-items: center; gap: 10px; }
+
+/* MillionVerifier check call-to-action — occupies the MV slot until it's run */
+button.verdict-cta {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: var(--paper);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.verdict-cta:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+button.verdict-cta:hover:not(:disabled) .vt-cta-text { color: var(--accent-ink); }
+button.verdict-cta:active:not(:disabled) { transform: translateY(1px); }
+button.verdict-cta:disabled { cursor: not-allowed; opacity: 0.65; }
+.verdict-cta .vt-cta-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.verdict-cta .vt-cta-text svg { width: 15px; height: 15px; }
+
+/* ===========================================================
+   BULK COLUMN MAPPING — preview + map before verifying
+   =========================================================== */
+.map-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-sm);
+  padding: 20px 22px;
+}
+.map-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.map-head h3 { margin: 0 0 3px; font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+.map-head p { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+.map-filecount {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 11px;
+}
+.map-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.map-grid .field label .opt {
+  color: var(--ink-4);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.map-preview-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-4);
+  margin-bottom: 8px;
+}
+.map-panel table th.col-mapped {
+  color: var(--persimmon-ink);
+  background: var(--persimmon-soft);
+}
+.map-panel .col-tag {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--persimmon);
+  margin-top: 2px;
+}
+.map-panel .toolbar { margin: 18px 0 0; }
+
+@media (max-width: 720px) {
+  .map-grid { grid-template-columns: repeat(2, 1fr); }
+}
 
 /* ===========================================================
    DROP ZONE
@@ -809,6 +954,48 @@ input:focus, select:focus, textarea:focus {
 .progress-head .pct { font-family: var(--mono); font-size: 12px; color: var(--persimmon-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 .progress-track { height: 6px; background: var(--paper-3); border-radius: 999px; overflow: hidden; position: relative; }
 .progress-fill { height: 100%; background: var(--persimmon); border-radius: 999px; }
+.progress-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.progress-meta span {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper-2);
+  color: var(--ink-4);
+  font-size: 12px;
+  line-height: 1.25;
+}
+.progress-meta strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.export-save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-4);
+}
+.link-btn {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--persimmon-ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.link-btn:hover { text-decoration: underline; }
 
 /* ===========================================================
    BULK SUMMARY
@@ -835,10 +1022,11 @@ input:focus, select:focus, textarea:focus {
 .summary-segment { min-width: 0; height: 100%; }
 .summary-segment.valid { background: var(--sage); }
 .summary-segment.accept-all { background: var(--amber); }
-.summary-segment.not-found { background: var(--brick); }
+.summary-segment.not-found,
+.summary-segment.invalid { background: var(--brick); }
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
@@ -861,7 +1049,8 @@ input:focus, select:focus, textarea:focus {
 }
 .summary-stat.valid strong { color: var(--sage); }
 .summary-stat.accept-all strong { color: var(--amber); }
-.summary-stat.not-found strong { color: var(--brick); }
+.summary-stat.not-found strong,
+.summary-stat.invalid strong { color: var(--brick); }
 
 /* ===========================================================
    TABLE
@@ -989,13 +1178,9 @@ tr.row-pending td { color: var(--ink-4); }
 /* ===========================================================
    TABLE TABS + PAGINATION (PaginatedTabs)
    =========================================================== */
-.table-tabs {
-  display: flex;
-  gap: 4px;
+.table-switcher {
+  margin: 12px 12px 10px;
   flex-wrap: wrap;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--paper-2);
 }
 
 /* content-sized columns that scroll horizontally instead of squishing */
