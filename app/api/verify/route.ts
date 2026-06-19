@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyEmail, verifyWithMv } from '@/lib/finder';
 import { recordVerification } from '@/lib/verifications';
+import { canUseBulk } from '@/lib/access';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,6 +12,15 @@ export async function POST(req: NextRequest) {
     const { email, source, mvOnly } = await req.json();
     if (!email) {
       return NextResponse.json({ error: 'email required' }, { status: 400 });
+    }
+    if (source === 'bulk') {
+      const supabase = createSupabaseServerClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!(await canUseBulk(user?.email))) {
+        return NextResponse.json({ error: 'bulk access not enabled' }, { status: 403 });
+      }
     }
     // mvOnly: user clicked "check with MillionVerifier" — force an MV check.
     const result = mvOnly ? await verifyWithMv(String(email)) : await verifyEmail(String(email));

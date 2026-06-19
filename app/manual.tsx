@@ -26,8 +26,8 @@ type DomainSuggestion = {
 };
 
 const MODES: { id: Mode; label: string }[] = [
-  { id: 'find', label: 'find by name' },
-  { id: 'verify', label: 'verify an email' },
+  { id: 'find', label: 'discovery' },
+  { id: 'verify', label: 'verification' },
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

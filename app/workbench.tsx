@@ -10,8 +10,8 @@ export function Workbench({ bulkEnabled }: { bulkEnabled: boolean }) {
   const [tab, setTab] = useState<Tab>('manual');
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'manual', label: 'single lookup' },
-    ...(bulkEnabled ? [{ id: 'bulk' as Tab, label: 'bulk csv' }] : []),
+    { id: 'manual', label: 'single' },
+    ...(bulkEnabled ? [{ id: 'bulk' as Tab, label: 'bulk' }] : []),
   ];
   const showBulk = bulkEnabled && tab === 'bulk';
 
@@ -19,7 +19,7 @@ export function Workbench({ bulkEnabled }: { bulkEnabled: boolean }) {
     <div className="page">
       <header className="page-head">
         <div>
-          <h1>{showBulk ? 'bulk email finder' : 'email finder'}</h1>
+          <h1>{showBulk ? 'bulk' : 'single'}</h1>
         </div>
       </header>
 

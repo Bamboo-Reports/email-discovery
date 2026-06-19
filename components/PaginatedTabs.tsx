@@ -34,7 +34,7 @@ export function PaginatedTabs({
   return (
     <div className="card">
       {tabs.length > 1 && (
-        <div className="table-tabs">
+        <div className="tabs table-switcher">
           {tabs.map((t) => (
             <button
               key={t.id}
