@@ -105,64 +105,130 @@ export interface AdminOverview {
  */
 export async function getAdminOverview(): Promise<AdminOverview> {
   const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
-    .from('verifications')
-    .select('*')
-    .order('created_at', { ascending: false });
 
-  if (error) {
-    logEvent('verifications', 'admin-error', { error: error.message });
-    return {
-      totalVerifications: 0,
-      totalDiscovered: 0,
-      totalApiCalls: 0,
-      distinctUsers: 0,
-      perUser: [],
-      recent: [],
-    };
-  }
+  const [perUser, recent] = await Promise.all([
+    getPerUserStats(),
+    admin
+      .from('verifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then(({ data, error }) => {
+        if (error) logEvent('verifications', 'admin-recent-error', { error: error.message });
+        return (data ?? []) as VerificationRow[];
+      }),
+  ]);
 
-  const rows = (data ?? []) as VerificationRow[];
-  const byUser = new Map<string, UserStats>();
-  let totalApiCalls = 0;
+  let totalVerifications = 0;
   let totalDiscovered = 0;
-
-  for (const r of rows) {
-    const key = r.user_email ?? r.user_id;
-    let u = byUser.get(key);
-    if (!u) {
-      u = {
-        user_email: key,
-        total: 0,
-        valid: 0,
-        acceptAll: 0,
-        invalid: 0,
-        notFound: 0,
-        apiCalls: 0,
-        lastActive: r.created_at,
-      };
-      byUser.set(key, u);
-    }
-    u.total++;
-    u.apiCalls += r.api_calls ?? 0;
-    if (r.created_at > u.lastActive) u.lastActive = r.created_at;
-    if (r.status === 'valid') u.valid++;
-    else if (r.status === 'accept-all') u.acceptAll++;
-    else if (r.status === 'invalid') u.invalid++;
-    else u.notFound++;
-
-    totalApiCalls += r.api_calls ?? 0;
-    if (r.status === 'valid' || r.status === 'accept-all') totalDiscovered++;
+  let totalApiCalls = 0;
+  for (const u of perUser) {
+    totalVerifications += u.total;
+    totalDiscovered += u.valid + u.acceptAll;
+    totalApiCalls += u.apiCalls;
   }
-
-  const perUser: UserStats[] = Array.from(byUser.values()).sort((a, b) => b.total - a.total);
 
   return {
-    totalVerifications: rows.length,
+    totalVerifications,
     totalDiscovered,
     totalApiCalls,
-    distinctUsers: byUser.size,
+    distinctUsers: perUser.length,
     perUser,
-    recent: rows.slice(0, 50),
+    recent,
   };
+}
+
+interface AdminUserStatsRow {
+  user_email: string;
+  total: number;
+  valid: number;
+  accept_all: number;
+  invalid: number;
+  not_found: number;
+  api_calls: number;
+  last_active: string;
+}
+
+/**
+ * Per-user aggregates, computed in Postgres via the admin_user_stats()
+ * function (migration 0003). Falls back to paging through the raw table if
+ * the function isn't deployed yet.
+ */
+async function getPerUserStats(): Promise<UserStats[]> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin.rpc('admin_user_stats');
+
+  if (error) {
+    logEvent('verifications', 'admin-stats-rpc-error', { error: error.message });
+    return getPerUserStatsFallback();
+  }
+
+  return ((data ?? []) as AdminUserStatsRow[]).map((r) => ({
+    user_email: r.user_email,
+    total: Number(r.total),
+    valid: Number(r.valid),
+    acceptAll: Number(r.accept_all),
+    invalid: Number(r.invalid),
+    notFound: Number(r.not_found),
+    apiCalls: Number(r.api_calls),
+    lastActive: r.last_active,
+  }));
+}
+
+/**
+ * Aggregate in JS by paging through every row. PostgREST caps a single
+ * response at 1000 rows, so the paging is mandatory — a plain select would
+ * silently cover only the newest 1000.
+ */
+async function getPerUserStatsFallback(): Promise<UserStats[]> {
+  const admin = createSupabaseAdminClient();
+  const PAGE = 1000;
+  const byUser = new Map<string, UserStats>();
+
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin
+      .from('verifications')
+      .select('user_id, user_email, created_at, status, api_calls')
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE - 1);
+
+    if (error) {
+      logEvent('verifications', 'admin-error', { error: error.message });
+      return [];
+    }
+
+    const page = (data ?? []) as Pick<
+      VerificationRow,
+      'user_id' | 'user_email' | 'created_at' | 'status' | 'api_calls'
+    >[];
+
+    for (const r of page) {
+      const key = r.user_email ?? r.user_id;
+      let u = byUser.get(key);
+      if (!u) {
+        u = {
+          user_email: key,
+          total: 0,
+          valid: 0,
+          acceptAll: 0,
+          invalid: 0,
+          notFound: 0,
+          apiCalls: 0,
+          lastActive: r.created_at,
+        };
+        byUser.set(key, u);
+      }
+      u.total++;
+      u.apiCalls += r.api_calls ?? 0;
+      if (r.created_at > u.lastActive) u.lastActive = r.created_at;
+      if (r.status === 'valid') u.valid++;
+      else if (r.status === 'accept-all') u.acceptAll++;
+      else if (r.status === 'invalid') u.invalid++;
+      else u.notFound++;
+    }
+
+    if (page.length < PAGE) break;
+  }
+
+  return Array.from(byUser.values()).sort((a, b) => b.total - a.total);
 }
