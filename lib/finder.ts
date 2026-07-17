@@ -24,6 +24,10 @@ export interface FindResult {
   creditsLeft?: number | null;
   rr?: ProviderResult | null;
   mv?: ProviderResult | null;
+  /** Result served from a recent stored discovery — no verifier calls, no credits. */
+  cached?: boolean;
+  /** created_at of the stored discovery the cached result came from. */
+  cachedAt?: string;
 }
 
 export interface VerifyResult {
@@ -35,6 +39,10 @@ export interface VerifyResult {
   creditsLeft?: number | null;
   rr?: ProviderResult | null;
   mv?: ProviderResult | null;
+  /** Result served from a recent stored verification — no verifier call, no credit. */
+  cached?: boolean;
+  /** created_at of the stored verification the cached result came from. */
+  cachedAt?: string;
 }
 
 const EMAIL_RE = /^[^\s@]+@([^\s@]+\.[^\s@]+)$/;

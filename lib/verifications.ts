@@ -62,6 +62,82 @@ export async function recordVerification(row: VerificationInsert): Promise<void>
   }
 }
 
+// How long a stored verification verdict is reused instead of re-verifying
+// (and re-spending a MillionVerifier credit).
+const CACHE_MAX_AGE_DAYS = 90;
+
+/**
+ * Most recent stored verdict for an email, from ANY user, within the freshness
+ * window. Uses the service-role client so the cache is shared org-wide despite
+ * per-user RLS. Best-effort: returns null on error so a cache failure never
+ * blocks a real verification. `not found` rows are never reused.
+ */
+export async function getCachedVerification(email: string): Promise<VerificationRow | null> {
+  const admin = createSupabaseAdminClient();
+  const cutoff = new Date(Date.now() - CACHE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await admin
+    .from('verifications')
+    .select('*')
+    .eq('email', email)
+    .in('status', ['valid', 'accept-all', 'invalid'])
+    // Only rows backed by a real verifier call — cache-hit rows are recorded
+    // with api_calls=0 and must not keep extending the freshness window.
+    .gt('api_calls', 0)
+    .gte('created_at', cutoff)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logEvent('verifications', 'cache-lookup-error', { error: error.message });
+    return null;
+  }
+  return (data as VerificationRow | null) ?? null;
+}
+
+// Escape LIKE wildcards so a name is matched literally by ilike
+// (ilike without wildcards = case-insensitive equality).
+const likeExact = (s: string) => s.replace(/[\\%_]/g, '\\$&');
+
+/**
+ * Most recent stored discovery for a contact (first + last name on a domain),
+ * from ANY user, within the freshness window. Names match case-insensitively
+ * since they're stored as entered. All statuses are reused — including
+ * `not found`, so bulk re-runs skip previously-failed contacts (manual
+ * discovery bypasses this cache and serves as the force-retry path).
+ * Best-effort: returns null on error so a cache failure never blocks a find.
+ */
+export async function getCachedDiscovery(
+  firstName: string,
+  lastName: string,
+  domain: string,
+): Promise<VerificationRow | null> {
+  const admin = createSupabaseAdminClient();
+  const cutoff = new Date(Date.now() - CACHE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await admin
+    .from('verifications')
+    .select('*')
+    .eq('kind', 'find')
+    .eq('domain', domain)
+    .ilike('first_name', likeExact(firstName))
+    .ilike('last_name', likeExact(lastName))
+    // Only rows backed by real verifier calls — cache-hit rows are recorded
+    // with api_calls=0 and must not keep extending the freshness window.
+    .gt('api_calls', 0)
+    .gte('created_at', cutoff)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logEvent('verifications', 'discovery-cache-lookup-error', { error: error.message });
+    return null;
+  }
+  return (data as VerificationRow | null) ?? null;
+}
+
 const HISTORY_PAGE_SIZE = 100;
 
 /** The current user's own verification history, newest first. */
