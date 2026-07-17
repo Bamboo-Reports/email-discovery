@@ -32,7 +32,10 @@ create index if not exists verifications_user_created_idx
   on public.verifications (user_id, created_at desc);
 create index if not exists verifications_status_idx on public.verifications (status);
 create index if not exists verifications_domain_idx on public.verifications (domain);
-create index if not exists verifications_email_idx  on public.verifications (email);
+-- Composite (email, created_at desc) also serves plain email lookups and backs
+-- the verification cache (newest fresh row per email).
+create index if not exists verifications_email_created_idx
+  on public.verifications (email, created_at desc);
 
 -- Row Level Security: each user sees and writes only their own rows.
 -- The admin dashboard reads via the secret (service-role) key, which bypasses RLS.

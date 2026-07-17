@@ -17,6 +17,8 @@ type Result = {
   mv: Provider;
   title: string;
   at: string;
+  cached?: boolean;
+  cachedAt?: string;
 };
 
 type DomainSuggestion = {
@@ -119,6 +121,8 @@ export default function ManualLookup() {
         mv: data.mv ?? null,
         title,
         at: new Date().toLocaleTimeString(),
+        cached: data.cached ?? false,
+        cachedAt: data.cachedAt,
       });
     } catch (e: any) {
       setError(e?.message ?? 'lookup failed');
@@ -291,7 +295,21 @@ export default function ManualLookup() {
           <div className="result">
               <div className="result-head">
                 <h4>{result.title}</h4>
-                <span className="ts">{result.at}</span>
+                <span className="ts">
+                  {result.cached && (
+                    <span
+                      className="cached-badge"
+                      title={
+                        result.cachedAt
+                          ? `Reused a verification from ${new Date(result.cachedAt).toLocaleDateString()} — no credit used`
+                          : 'Reused a recent verification — no credit used'
+                      }
+                    >
+                      cached · no credit used
+                    </span>
+                  )}
+                  {result.at}
+                </span>
               </div>
 
               <div className="kv">
@@ -333,6 +351,16 @@ export default function ManualLookup() {
                       <span className="vt-body">
                         <StatusBadge status={result.mv.status} />
                         <ConfidenceBar value={result.mv.confidence} small />
+                        {result.email && (
+                          <button
+                            className="copy-mini mv-recheck"
+                            onClick={checkWithMv}
+                            disabled={mvChecking}
+                            title="Re-check with MillionVerifier (uses 1 credit)"
+                          >
+                            {mvChecking ? <Spinner /> : '↻'}
+                          </button>
+                        )}
                       </span>
                     </div>
                   ) : result.rr && result.email ? (

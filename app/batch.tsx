@@ -10,12 +10,15 @@ type BulkStatus = 'valid' | 'invalid' | 'accept-all' | 'not found';
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 type DomainHit =
-  | { status: 'valid' | 'accept-all'; patternIndex: number; confidence: number; rr: Provider; mv: Provider }
-  | { status: 'not found'; rr: Provider; mv: Provider };
+  | { status: 'valid' | 'accept-all'; patternIndex: number; confidence: number; rr: Provider; mv: Provider; cached?: boolean }
+  | { status: 'not found'; rr: Provider; mv: Provider; cached?: boolean };
 
 // Reacher probes real SMTP through one proxy IP; parallel lookups get the IP
 // throttled by Google/Microsoft (false invalids/unknowns). Serialize to 1.
 const CONCURRENCY = 1;
+// The cache sweep (phase 1) never touches a verifier — it's pure DB reads —
+// so it can run wide open without any throttling risk.
+const CACHE_SWEEP_CONCURRENCY = 8;
 // A reacher-fail domain can do ~11 SMTP probes + a full MV sweep, so a single row
 // can run ~45s+. Keep the client timeout well above that or rows get aborted and
 // wrongly shown as "not found" while the server is still resolving them.
@@ -23,7 +26,7 @@ const ROW_TIMEOUT_MS = 120_000;
 const PREVIEW_ROWS = 6;
 
 type InRow = { uuid: string; firstName: string; lastName: string; domain: string; email: string };
-type Out = { email: string; status: BulkStatus; confidence: number; rr: Provider; mv: Provider } | null;
+type Out = { email: string; status: BulkStatus; confidence: number; rr: Provider; mv: Provider; cached?: boolean } | null;
 
 type Parsed = { headers: string[]; rows: Record<string, string>[] };
 type Mapping = { uuid: string; firstName: string; lastName: string; domain: string; email: string };
@@ -95,9 +98,9 @@ function toCSV(mode: BulkMode, rows: InRow[], results: Out[]): string {
   const header = mode === 'discovery'
     ? [
       'UUID', 'First Name', 'Last Name', 'Domain', 'Email', 'Status', 'Confidence',
-      'RR Status', 'RR Confidence', 'MV Status', 'MV Confidence',
+      'RR Status', 'RR Confidence', 'MV Status', 'MV Confidence', 'Cached',
     ]
-    : ['UUID', 'Email', 'Status', 'Confidence', 'RR Status', 'RR Confidence', 'MV Status', 'MV Confidence'];
+    : ['UUID', 'Email', 'Status', 'Confidence', 'RR Status', 'RR Confidence', 'MV Status', 'MV Confidence', 'Cached'];
   const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const conf = (p: Provider) => (p ? p.confidence.toFixed(2) : '');
   const body = rows.map((r, i) => {
@@ -107,10 +110,12 @@ function toCSV(mode: BulkMode, rows: InRow[], results: Out[]): string {
         r.uuid, r.firstName, r.lastName, r.domain,
         out?.email ?? '', out?.status ?? 'not found', (out?.confidence ?? 0).toFixed(2),
         out?.rr?.status ?? '', conf(out?.rr ?? null), out?.mv?.status ?? '', conf(out?.mv ?? null),
+        out?.cached ? 'yes' : '',
       ]
       : [
         r.uuid, r.email, out?.status ?? 'not found', (out?.confidence ?? 0).toFixed(2),
         out?.rr?.status ?? '', conf(out?.rr ?? null), out?.mv?.status ?? '', conf(out?.mv ?? null),
+        out?.cached ? 'yes' : '',
       ];
     return values.map(esc).join(',');
   });
@@ -358,7 +363,7 @@ export default function BatchLookup() {
       setActiveIds(new Set(active));
     };
 
-    const lookupDomain = async (row: InRow): Promise<DomainHit | null> => {
+    const lookupDomain = async (row: InRow, cacheOnly = false): Promise<DomainHit | null | 'miss'> => {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), ROW_TIMEOUT_MS);
       try {
@@ -370,27 +375,31 @@ export default function BatchLookup() {
             lastName: row.lastName,
             domain: row.domain,
             source: 'bulk',
+            cacheOnly,
           }),
           signal: ctrl.signal,
         });
-        if (!res.ok) return { status: 'not found', rr: null, mv: null };
+        // Any sweep-phase failure just defers the row to a real attempt.
+        if (!res.ok) return cacheOnly ? 'miss' : { status: 'not found', rr: null, mv: null };
         const data = await res.json();
+        if (data.miss) return 'miss';
+        const cached = data.cached ?? false;
         const status = (data.status || 'not found') as 'valid' | 'accept-all' | 'not found';
-        if (status === 'not found') return { status: 'not found', rr: data.rr ?? null, mv: data.mv ?? null };
+        if (status === 'not found') return { status: 'not found', rr: data.rr ?? null, mv: data.mv ?? null, cached };
         const patterns = generatePatterns(row.firstName, row.lastName, row.domain);
         const email = data.email || '';
         const confidence = data.confidence ?? 0;
         const idx = status === 'valid' ? patterns.findIndex((p) => p.email === email) : 0;
         if (idx < 0) return null;
-        return { status, patternIndex: idx, confidence, rr: data.rr ?? null, mv: data.mv ?? null };
+        return { status, patternIndex: idx, confidence, rr: data.rr ?? null, mv: data.mv ?? null, cached };
       } catch {
-        return { status: 'not found', rr: null, mv: null };
+        return cacheOnly ? 'miss' : { status: 'not found', rr: null, mv: null };
       } finally {
         clearTimeout(timer);
       }
     };
 
-    const verifyEmail = async (row: InRow): Promise<Out> => {
+    const verifyEmail = async (row: InRow, cacheOnly = false): Promise<Out | 'miss'> => {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), ROW_TIMEOUT_MS);
       try {
@@ -400,20 +409,24 @@ export default function BatchLookup() {
           body: JSON.stringify({
             email: row.email,
             source: 'bulk',
+            cacheOnly,
           }),
           signal: ctrl.signal,
         });
-        if (!res.ok) return { email: row.email, status: 'not found', confidence: 0, rr: null, mv: null };
+        // Any sweep-phase failure just defers the row to a real attempt.
+        if (!res.ok) return cacheOnly ? 'miss' : { email: row.email, status: 'not found', confidence: 0, rr: null, mv: null };
         const data = await res.json();
+        if (data.miss) return 'miss';
         return {
           email: data.email || row.email,
           status: (data.status || 'not found') as BulkStatus,
           confidence: data.confidence ?? 0,
           rr: data.rr ?? null,
           mv: data.mv ?? null,
+          cached: data.cached ?? false,
         };
       } catch {
-        return { email: row.email, status: 'not found', confidence: 0, rr: null, mv: null };
+        return cacheOnly ? 'miss' : { email: row.email, status: 'not found', confidence: 0, rr: null, mv: null };
       } finally {
         clearTimeout(timer);
       }
@@ -421,7 +434,7 @@ export default function BatchLookup() {
 
     const applyHit = (i: number, row: InRow, hit: DomainHit) => {
       if (hit.status === 'not found') {
-        next[i] = { email: '', status: 'not found', confidence: 0, rr: hit.rr, mv: hit.mv };
+        next[i] = { email: '', status: 'not found', confidence: 0, rr: hit.rr, mv: hit.mv, cached: hit.cached };
       } else {
         const patterns = generatePatterns(row.firstName, row.lastName, row.domain);
         next[i] = {
@@ -430,11 +443,16 @@ export default function BatchLookup() {
           confidence: hit.confidence,
           rr: hit.rr,
           mv: hit.mv,
+          cached: hit.cached,
         };
       }
     };
 
-    const worker = async () => {
+    // Phase 1 — parallel cache sweep. Cache hits are pure DB reads (no verifier,
+    // no proxy IP), so wide concurrency is safe; misses are collected and
+    // resolved in phase 2. Empty/invalid rows are settled here too.
+    const misses: number[] = [];
+    const sweepWorker = async () => {
       while (true) {
         const i = cursor++;
         if (i >= rows.length) return;
@@ -446,15 +464,50 @@ export default function BatchLookup() {
               next[i] = { email: '', status: 'not found', confidence: 0, rr: null, mv: null };
               continue;
             }
-            next[i] = await verifyEmail(row);
+            const out = await verifyEmail(row, true);
+            if (out === 'miss') misses.push(i);
+            else next[i] = out;
             continue;
           }
           if (!row.firstName || !row.lastName || !row.domain) {
             next[i] = { email: '', status: 'not found', confidence: 0, rr: null, mv: null };
             continue;
           }
+          const hit = await lookupDomain(row, true);
+          if (hit === 'miss') misses.push(i);
+          else if (hit) applyHit(i, row, hit);
+          else next[i] = { email: '', status: 'not found', confidence: 0, rr: null, mv: null };
+        } finally {
+          markActive(i, false);
+          setResults([...next]);
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(CACHE_SWEEP_CONCURRENCY, rows.length) }, () => sweepWorker()),
+    );
+
+    // Phase 2 — real verifications for the cache misses, serialized as before
+    // (Reacher's single proxy IP gets throttled by parallel SMTP probes).
+    // Restore file order so same-domain rows stay consecutive for the
+    // learned-format optimization in discovery mode.
+    misses.sort((a, b) => a - b);
+    let missCursor = 0;
+    const worker = async () => {
+      while (true) {
+        const k = missCursor++;
+        if (k >= misses.length) return;
+        const i = misses[k];
+        const row = rows[i];
+        markActive(i, true);
+        try {
+          if (mode === 'verification') {
+            const out = await verifyEmail(row);
+            next[i] = out === 'miss' ? { email: row.email, status: 'not found', confidence: 0, rr: null, mv: null } : out;
+            continue;
+          }
           const hit = await lookupDomain(row);
-          if (hit) applyHit(i, row, hit);
+          if (hit && hit !== 'miss') applyHit(i, row, hit);
           else next[i] = { email: '', status: 'not found', confidence: 0, rr: null, mv: null };
         } finally {
           markActive(i, false);
@@ -463,7 +516,7 @@ export default function BatchLookup() {
       }
     };
 
-    const n = Math.min(CONCURRENCY, rows.length);
+    const n = Math.min(CONCURRENCY, misses.length);
     await Promise.all(Array.from({ length: n }, () => worker()));
     setNow(Date.now());
     setRunning(false);
