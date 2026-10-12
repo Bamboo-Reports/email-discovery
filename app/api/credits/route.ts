@@ -14,6 +14,6 @@ export async function GET() {
     const credits = await getMillionVerifierCredits();
     return NextResponse.json(credits);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'unknown error' }, { status: 500 });
+    return NextResponse.json({ error: e?.message ?? 'something went wrong. try again.' }, { status: 500 });
   }
 }

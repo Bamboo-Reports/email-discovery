@@ -17,9 +17,9 @@ export async function GET(
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    if (!user) return NextResponse.json({ error: 'you’re signed out. sign in again.' }, { status: 401 });
     if (!(await canUseBulk(user.email))) {
-      return NextResponse.json({ error: 'bulk access not enabled' }, { status: 403 });
+      return NextResponse.json({ error: 'bulk access isn’t turned on for your account. ask an admin.' }, { status: 403 });
     }
 
     const { data: exportRow, error } = await supabase
@@ -29,7 +29,7 @@ export async function GET(
       .single();
 
     if (error || !exportRow) {
-      return NextResponse.json({ error: 'export not found' }, { status: 404 });
+      return NextResponse.json({ error: 'this export no longer exists.' }, { status: 404 });
     }
 
     const admin = createSupabaseAdminClient();
@@ -40,11 +40,11 @@ export async function GET(
       });
 
     if (signedError || !data?.signedUrl) {
-      return NextResponse.json({ error: signedError?.message ?? 'download unavailable' }, { status: 500 });
+      return NextResponse.json({ error: signedError?.message ?? 'download isn’t available right now. try again.' }, { status: 500 });
     }
 
     return NextResponse.redirect(data.signedUrl);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'unknown error' }, { status: 500 });
+    return NextResponse.json({ error: e?.message ?? 'something went wrong. try again.' }, { status: 500 });
   }
 }

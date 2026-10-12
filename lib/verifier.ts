@@ -15,18 +15,18 @@ export interface CheckResult {
 
 export type Method = 'MV' | 'RR' | 'BOTH';
 
-function method(): Method {
+export function verificationMethod(): Method {
   const m = process.env.VERIFICATION_METHOD;
   return m === 'RR' || m === 'BOTH' ? m : 'MV';
 }
 
 export function isBothMode(): boolean {
-  return method() === 'BOTH';
+  return verificationMethod() === 'BOTH';
 }
 
 /** The primary engine is reacher whenever reacher is involved (RR or BOTH). */
 export function primaryIsReacher(): boolean {
-  return method() !== 'MV';
+  return verificationMethod() !== 'MV';
 }
 
 /**
@@ -35,7 +35,7 @@ export function primaryIsReacher(): boolean {
  * false on a shared proxy IP. RR's 'valid' and 'accept-all' are trusted as-is.
  */
 export function shouldSecondOpinion(primaryStatus: VerifyStatus): boolean {
-  return method() === 'BOTH' && (primaryStatus === 'invalid' || primaryStatus === 'not found');
+  return verificationMethod() === 'BOTH' && (primaryStatus === 'invalid' || primaryStatus === 'not found');
 }
 
 // --- MillionVerifier normalization ---

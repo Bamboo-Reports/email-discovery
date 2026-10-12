@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   try {
     const { email, source, mvOnly, cacheOnly } = await req.json();
     if (!email) {
-      return NextResponse.json({ error: 'email required' }, { status: 400 });
+      return NextResponse.json({ error: 'enter an email address.' }, { status: 400 });
     }
     if (source === 'bulk') {
       const supabase = createSupabaseServerClient();
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
         data: { user },
       } = await supabase.auth.getUser();
       if (!(await canUseBulk(user?.email))) {
-        return NextResponse.json({ error: 'bulk access not enabled' }, { status: 403 });
+        return NextResponse.json({ error: 'bulk access isn’t turned on for your account. ask an admin.' }, { status: 403 });
       }
     }
     // Reuse a recent stored verdict (any user, 90-day window) instead of
@@ -100,6 +100,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'unknown error' }, { status: 500 });
+    return NextResponse.json({ error: e?.message ?? 'something went wrong. try again.' }, { status: 500 });
   }
 }

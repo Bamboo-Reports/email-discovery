@@ -36,6 +36,9 @@ create index if not exists verifications_domain_idx on public.verifications (dom
 -- the verification cache (newest fresh row per email).
 create index if not exists verifications_email_created_idx
   on public.verifications (email, created_at desc);
+-- Org-wide date-range scans (admin period stats).
+create index if not exists verifications_created_idx
+  on public.verifications (created_at desc);
 
 -- Row Level Security: each user sees and writes only their own rows.
 -- The admin dashboard reads via the secret (service-role) key, which bypasses RLS.
@@ -61,6 +64,14 @@ alter table public.bulk_access enable row level security;
 
 -- Completed bulk CSV exports. Files live in the private Supabase Storage
 -- bucket below; this table stores user-scoped metadata for history/download UI.
+-- Admins granted from the dashboard (ADMIN_EMAILS env owners are separate).
+create table if not exists public.app_admins (
+  email      text primary key,
+  granted_by text,
+  created_at timestamptz not null default now()
+);
+alter table public.app_admins enable row level security;
+
 create table if not exists public.bulk_exports (
   id               uuid primary key default gen_random_uuid(),
   user_id          uuid not null references auth.users (id) on delete cascade,

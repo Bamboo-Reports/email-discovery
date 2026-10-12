@@ -1,6 +1,20 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import {
+  RiAddLine,
+  RiAtLine,
+  RiCheckLine,
+  RiDatabase2Line,
+  RiErrorWarningFill,
+  RiFileCopyLine,
+  RiGlobalLine,
+  RiRefreshLine,
+  RiSearchLine,
+  RiShieldCheckLine,
+  RiUserLine,
+  type RemixiconComponentType,
+} from '@remixicon/react';
 import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ConfidenceBar } from '@/components/ConfidenceBar';
@@ -27,9 +41,9 @@ type DomainSuggestion = {
   icon?: string;
 };
 
-const MODES: { id: Mode; label: string }[] = [
-  { id: 'find', label: 'discovery' },
-  { id: 'verify', label: 'verification' },
+const MODES: { id: Mode; label: string; Icon: RemixiconComponentType }[] = [
+  { id: 'find', label: 'discovery', Icon: RiSearchLine },
+  { id: 'verify', label: 'verification', Icon: RiShieldCheckLine },
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -100,7 +114,7 @@ export default function ManualLookup() {
           body: JSON.stringify({ firstName: fn, lastName: ln, domain: dm }),
         });
         data = await res.json();
-        if (!res.ok) throw new Error(data?.error ?? `request failed (${res.status})`);
+        if (!res.ok) throw new Error(data?.error ?? `something went wrong (error ${res.status}). try again.`);
         title = `${fn} ${ln} · ${dm}`;
       } else {
         const em = email.trim().toLowerCase();
@@ -110,7 +124,7 @@ export default function ManualLookup() {
           body: JSON.stringify({ email: em }),
         });
         data = await res.json();
-        if (!res.ok) throw new Error(data?.error ?? `request failed (${res.status})`);
+        if (!res.ok) throw new Error(data?.error ?? `something went wrong (error ${res.status}). try again.`);
         title = em;
       }
       setResult({
@@ -125,7 +139,7 @@ export default function ManualLookup() {
         cachedAt: data.cachedAt,
       });
     } catch (e: any) {
-      setError(e?.message ?? 'lookup failed');
+      setError(e?.message ?? 'lookup failed. try again.');
     } finally {
       setRunning(false);
     }
@@ -156,10 +170,10 @@ export default function ManualLookup() {
         body: JSON.stringify({ email: result.email, mvOnly: true }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? `request failed (${res.status})`);
+      if (!res.ok) throw new Error(data?.error ?? `something went wrong (error ${res.status}). try again.`);
       setResult((r) => (r ? { ...r, mv: data.mv ?? null } : r));
     } catch (e: any) {
-      setError(e?.message ?? 'MillionVerifier check failed');
+      setError(e?.message ?? 'millionverifier check failed. try again.');
     } finally {
       setMvChecking(false);
     }
@@ -182,6 +196,7 @@ export default function ManualLookup() {
               className={`tab ${mode === m.id ? 'active' : ''}`}
               onClick={() => switchMode(m.id)}
             >
+              <m.Icon size={16} />
               {m.label}
             </button>
           ))}
@@ -193,34 +208,43 @@ export default function ManualLookup() {
               <label>
                 first name<span className="req">●</span>
               </label>
-              <input
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                placeholder="abhishek"
-                autoComplete="off"
-              />
+              <span className="input-icon">
+                <RiUserLine size={16} aria-hidden="true" />
+                <input
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="jane"
+                  autoComplete="off"
+                />
+              </span>
             </div>
             <div className="field">
               <label>
                 last name<span className="req">●</span>
               </label>
-              <input
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                placeholder="fodikar"
-                autoComplete="off"
-              />
+              <span className="input-icon">
+                <RiUserLine size={16} aria-hidden="true" />
+                <input
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="doe"
+                  autoComplete="off"
+                />
+              </span>
             </div>
             <div className="field">
               <label>
                 domain<span className="req">●</span>
               </label>
-              <input
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                placeholder="researchnxt.com"
-                autoComplete="off"
-              />
+              <span className="input-icon">
+                <RiGlobalLine size={16} aria-hidden="true" />
+                <input
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                  placeholder="acme.com"
+                  autoComplete="off"
+                />
+              </span>
               {domainSuggestions.length > 0 && (
                 <div className="domain-suggestions">
                   {domainSuggestions.map((item) => (
@@ -247,10 +271,10 @@ export default function ManualLookup() {
             >
               {running ? (
                 <>
-                  <Spinner /> verifying
+                  <Spinner /> searching
                 </>
               ) : (
-                <>find email</>
+                <><RiSearchLine size={16} aria-hidden="true" /> find email</>
               )}
             </button>
           </div>
@@ -264,14 +288,17 @@ export default function ManualLookup() {
               <label>
                 email address<span className="req">●</span>
               </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="abhishek.fodikar@researchnxt.com"
-                autoComplete="off"
-                spellCheck={false}
-              />
+              <span className="input-icon">
+                <RiAtLine size={16} aria-hidden="true" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="jane.doe@acme.com"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </span>
             </div>
             <button
               className="btn accent"
@@ -283,13 +310,13 @@ export default function ManualLookup() {
                   <Spinner /> verifying
                 </>
               ) : (
-                <>verify email</>
+                <><RiShieldCheckLine size={16} aria-hidden="true" /> verify email</>
               )}
             </button>
           </div>
         )}
 
-        {error && <div className="err">{error}</div>}
+        {error && <div className="err"><RiErrorWarningFill size={18} aria-hidden="true" /><span>{error}</span></div>}
 
         {result && (
           <div className="result">
@@ -301,10 +328,11 @@ export default function ManualLookup() {
                       className="cached-badge"
                       title={
                         result.cachedAt
-                          ? `Reused a verification from ${new Date(result.cachedAt).toLocaleDateString()} — no credit used`
-                          : 'Reused a recent verification — no credit used'
+                          ? `reused a result from ${new Date(result.cachedAt).toLocaleDateString()}, so no credit was spent`
+                          : 'reused a recent result, so no credit was spent'
                       }
                     >
+                      <RiDatabase2Line size={12} aria-hidden="true" />
                       cached · no credit used
                     </span>
                   )}
@@ -323,17 +351,17 @@ export default function ManualLookup() {
                         onClick={copyEmail}
                         title={copied ? 'copied' : 'copy'}
                       >
-                        {copied ? '✓' : '⧉'}
+                        {copied ? <RiCheckLine size={14} aria-label="copied" /> : <RiFileCopyLine size={14} aria-label="copy" />}
                       </button>
                     </>
                   ) : (
-                    <span style={{ color: 'var(--ink-4)' }}>— no candidate —</span>
+                    <span style={{ color: 'var(--ink-4)' }}>no email found</span>
                   )}
                 </span>
               </div>
 
               <div className="kv">
-                <strong>{mode === 'verify' && result.status === 'accept-all' ? 'certainty' : 'status'}</strong>
+                <strong>result</strong>
                 <div className="verdicts">
                   {result.rr && (
                     <div className="verdict-tile">
@@ -356,9 +384,9 @@ export default function ManualLookup() {
                             className="copy-mini mv-recheck"
                             onClick={checkWithMv}
                             disabled={mvChecking}
-                            title="Re-check with MillionVerifier (uses 1 credit)"
+                            title="check again with millionverifier · uses 1 credit"
                           >
-                            {mvChecking ? <Spinner /> : '↻'}
+                            {mvChecking ? <Spinner /> : <RiRefreshLine size={14} aria-label="re-check" />}
                           </button>
                         )}
                       </span>
@@ -369,7 +397,7 @@ export default function ManualLookup() {
                       className="verdict-tile verdict-cta"
                       onClick={checkWithMv}
                       disabled={mvChecking}
-                      title="Verify this address with MillionVerifier (uses 1 credit)"
+                      title="check this address with millionverifier · uses 1 credit"
                     >
                       <span className="vt-label">millionverifier</span>
                       <span className="vt-cta-text">
@@ -379,9 +407,7 @@ export default function ManualLookup() {
                           </>
                         ) : (
                           <>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M12 5v14M5 12h14" />
-                            </svg>
+                            <RiAddLine size={16} aria-hidden="true" />
                             check now
                           </>
                         )}

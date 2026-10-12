@@ -18,8 +18,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'email finder',
-  description: 'discover and verify professional emails by name + domain',
+  title: 'email workbench',
+  description: 'find and verify work emails from a name and company domain',
 };
 
 const themeScript = `

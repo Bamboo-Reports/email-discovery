@@ -30,15 +30,32 @@ export async function middleware(request: NextRequest) {
   );
 
   const {
-    data: { user },
+    data: { user: sessionUser },
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
+
+  // Archived users (banned by an admin) lose access immediately: drop the
+  // session and treat them as signed out. History rows are kept.
+  const archived = !!sessionUser?.banned_until && Date.parse(sessionUser.banned_until) > Date.now();
+  const user = archived ? null : sessionUser;
+  if (archived) {
+    await supabase.auth.signOut();
+    if (!pathname.startsWith('/api/') && pathname !== '/login') {
+      const url = request.nextUrl.clone();
+      url.pathname = '/login';
+      url.search = '?archived=1';
+      const redirect = NextResponse.redirect(url);
+      // carry over the cleared auth cookies
+      response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+      return redirect;
+    }
+  }
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
   // API routes: respond with 401 JSON rather than redirecting to an HTML page.
   if (!user && pathname.startsWith('/api/')) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'you’re signed out. sign in again.' }, { status: 401 });
   }
 
   if (!user && !isPublic) {
