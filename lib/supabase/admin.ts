@@ -13,7 +13,11 @@ export function createSupabaseAdminClient() {
   );
 }
 
-/** Emails allowed to view the admin dashboard (comma-separated env var). */
+/**
+ * Owner admins from the ADMIN_EMAILS env var (comma-separated). They can't be
+ * demoted from the UI; admins granted in the dashboard live in app_admins —
+ * use isAdmin() from lib/access for the full check.
+ */
 export function adminEmails(): string[] {
   return (process.env.ADMIN_EMAILS ?? '')
     .split(',')

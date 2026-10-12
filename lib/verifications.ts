@@ -226,17 +226,19 @@ interface AdminUserStatsRow {
 }
 
 /**
- * Per-user aggregates, computed in Postgres via the admin_user_stats()
- * function (migration 0003). Falls back to paging through the raw table if
- * the function isn't deployed yet.
+ * Per-user aggregates, computed in Postgres via admin_user_stats() (migration
+ * 0003), or admin_user_stats_since() (0007) when `since` is given. Falls back
+ * to paging through the raw table if the function isn't deployed yet.
  */
-async function getPerUserStats(): Promise<UserStats[]> {
+async function getPerUserStats(since?: string): Promise<UserStats[]> {
   const admin = createSupabaseAdminClient();
-  const { data, error } = await admin.rpc('admin_user_stats');
+  const { data, error } = since
+    ? await admin.rpc('admin_user_stats_since', { p_since: since })
+    : await admin.rpc('admin_user_stats');
 
   if (error) {
-    logEvent('verifications', 'admin-stats-rpc-error', { error: error.message });
-    return getPerUserStatsFallback();
+    logEvent('verifications', 'admin-stats-rpc-error', { error: error.message, since });
+    return getPerUserStatsFallback(since);
   }
 
   return ((data ?? []) as AdminUserStatsRow[]).map((r) => ({
@@ -256,15 +258,17 @@ async function getPerUserStats(): Promise<UserStats[]> {
  * response at 1000 rows, so the paging is mandatory — a plain select would
  * silently cover only the newest 1000.
  */
-async function getPerUserStatsFallback(): Promise<UserStats[]> {
+async function getPerUserStatsFallback(since?: string): Promise<UserStats[]> {
   const admin = createSupabaseAdminClient();
   const PAGE = 1000;
   const byUser = new Map<string, UserStats>();
 
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await admin
+    let query = admin
       .from('verifications')
-      .select('user_id, user_email, created_at, status, api_calls')
+      .select('user_id, user_email, created_at, status, api_calls');
+    if (since) query = query.gte('created_at', since);
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .range(from, from + PAGE - 1);
 
@@ -307,4 +311,191 @@ async function getPerUserStatsFallback(): Promise<UserStats[]> {
   }
 
   return Array.from(byUser.values()).sort((a, b) => b.total - a.total);
+}
+
+// --- Usage over time (admin) ---
+
+export type PeriodGrain = 'day' | 'week' | 'month' | 'year';
+
+export interface PeriodStats {
+  periodStart: string; // YYYY-MM-DD, first day of the period in IST
+  total: number;
+  valid: number;
+  acceptAll: number;
+  invalid: number;
+  notFound: number;
+  apiCalls: number;
+  activeUsers: number;
+}
+
+export type PeriodStatsByGrain = Record<PeriodGrain, PeriodStats[]>;
+
+// How many periods each view goes back (fewer if data starts later).
+export const PERIOD_WINDOWS: Record<PeriodGrain, number> = { day: 30, week: 12, month: 6, year: 5 };
+const GRAINS = Object.keys(PERIOD_WINDOWS) as PeriodGrain[];
+
+// Periods are cut in IST, matching admin_period_stats()'s default p_tz.
+// IST has no DST, so a fixed offset is exact.
+const IST_OFFSET_MS = 330 * 60 * 1000;
+
+interface AdminPeriodStatsRow {
+  period_start: string;
+  total: number;
+  valid: number;
+  accept_all: number;
+  invalid: number;
+  not_found: number;
+  api_calls: number;
+  active_users: number;
+}
+
+/**
+ * Org-wide usage per day / week / month / year, newest period first, with
+ * empty periods zero-filled. Computed in Postgres via admin_period_stats()
+ * (migration 0005); falls back to paging the raw table if it isn't deployed.
+ * Service-role client — callers MUST verify the requester is an admin first.
+ */
+export async function getAdminPeriodStats(): Promise<PeriodStatsByGrain> {
+  const admin = createSupabaseAdminClient();
+  const results = await Promise.all(
+    GRAINS.map((g) => admin.rpc('admin_period_stats', { p_grain: g, p_periods: PERIOD_WINDOWS[g] })),
+  );
+
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    logEvent('verifications', 'admin-period-stats-rpc-error', { error: failed.error.message });
+    return getAdminPeriodStatsFallback();
+  }
+
+  const out = {} as PeriodStatsByGrain;
+  GRAINS.forEach((g, i) => {
+    out[g] = ((results[i].data ?? []) as AdminPeriodStatsRow[]).map((r) => ({
+      periodStart: r.period_start,
+      total: Number(r.total),
+      valid: Number(r.valid),
+      acceptAll: Number(r.accept_all),
+      invalid: Number(r.invalid),
+      notFound: Number(r.not_found),
+      apiCalls: Number(r.api_calls),
+      activeUsers: Number(r.active_users),
+    }));
+  });
+  return out;
+}
+
+/** First day (YYYY-MM-DD, IST) of the period containing `ms`. */
+function periodKey(ms: number, grain: PeriodGrain): string {
+  const d = new Date(ms + IST_OFFSET_MS);
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  let day = d.getUTCDate();
+  if (grain === 'year') return `${y}-01-01`;
+  if (grain === 'month') return `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  if (grain === 'week') day -= (d.getUTCDay() + 6) % 7; // back to Monday
+  return new Date(Date.UTC(y, m, day)).toISOString().slice(0, 10);
+}
+
+/** The period before `key` (a YYYY-MM-DD period start). */
+function previousKey(key: string, grain: PeriodGrain): string {
+  const [y, m, d] = key.split('-').map(Number);
+  const prev =
+    grain === 'year' ? Date.UTC(y - 1, 0, 1)
+    : grain === 'month' ? Date.UTC(y, m - 2, 1)
+    : Date.UTC(y, m - 1, d - (grain === 'week' ? 7 : 1));
+  return new Date(prev).toISOString().slice(0, 10);
+}
+
+/**
+ * Same result as admin_period_stats(), aggregated in JS. Pages through every
+ * row once (PostgREST caps responses at 1000) and buckets it for all grains.
+ */
+async function getAdminPeriodStatsFallback(): Promise<PeriodStatsByGrain> {
+  const admin = createSupabaseAdminClient();
+  const PAGE = 1000;
+  const PARALLEL = 8;
+  type Row = Pick<VerificationRow, 'user_id' | 'user_email' | 'created_at' | 'status' | 'api_calls'>;
+
+  const { count, error: countError } = await admin
+    .from('verifications')
+    .select('id', { count: 'exact', head: true });
+  if (countError) {
+    logEvent('verifications', 'admin-period-count-error', { error: countError.message });
+  }
+
+  const rows: Row[] = [];
+  const pages = Math.ceil((count ?? 0) / PAGE);
+  for (let start = 0; start < pages; start += PARALLEL) {
+    const batch = await Promise.all(
+      Array.from({ length: Math.min(PARALLEL, pages - start) }, (_, i) => {
+        const from = (start + i) * PAGE;
+        return admin
+          .from('verifications')
+          .select('user_id, user_email, created_at, status, api_calls')
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1);
+      }),
+    );
+    for (const { data, error } of batch) {
+      if (error) {
+        logEvent('verifications', 'admin-period-error', { error: error.message });
+        continue;
+      }
+      rows.push(...((data ?? []) as Row[]));
+    }
+  }
+
+  const now = Date.now();
+  const firstMs = rows.length ? Date.parse(rows[0].created_at) : now;
+  const out = {} as PeriodStatsByGrain;
+
+  for (const grain of GRAINS) {
+    const buckets = new Map<string, PeriodStats & { users: Set<string> }>();
+    const firstKey = periodKey(firstMs, grain);
+    let key = periodKey(now, grain);
+    for (let i = 0; i < PERIOD_WINDOWS[grain] && key >= firstKey; i++) {
+      buckets.set(key, {
+        periodStart: key,
+        total: 0, valid: 0, acceptAll: 0, invalid: 0, notFound: 0, apiCalls: 0, activeUsers: 0,
+        users: new Set(),
+      });
+      key = previousKey(key, grain);
+    }
+
+    for (const r of rows) {
+      const b = buckets.get(periodKey(Date.parse(r.created_at), grain));
+      if (!b) continue;
+      b.total++;
+      b.apiCalls += r.api_calls ?? 0;
+      b.users.add(r.user_email ?? r.user_id);
+      if (r.status === 'valid') b.valid++;
+      else if (r.status === 'accept-all') b.acceptAll++;
+      else if (r.status === 'invalid') b.invalid++;
+      else b.notFound++;
+    }
+
+    out[grain] = Array.from(buckets.values()).map(({ users, ...s }) => ({ ...s, activeUsers: users.size }));
+  }
+  return out;
+}
+
+// --- Per-user totals for the current day / week / month / year (admin) ---
+
+export type UserPeriod = 'today' | 'week' | 'month' | 'year';
+const USER_PERIOD_GRAIN: Record<UserPeriod, PeriodGrain> = { today: 'day', week: 'week', month: 'month', year: 'year' };
+
+/**
+ * Per-user totals since the start of the current day / week / month / year
+ * in IST (weeks start Monday), matching the usage-over-time periods.
+ * Service-role client — callers MUST verify the requester is an admin first.
+ */
+export async function getPerUserStatsByPeriod(): Promise<Record<UserPeriod, UserStats[]>> {
+  const periods = Object.keys(USER_PERIOD_GRAIN) as UserPeriod[];
+  const results = await Promise.all(
+    periods.map((p) => {
+      const start = periodKey(Date.now(), USER_PERIOD_GRAIN[p]); // YYYY-MM-DD in IST
+      return getPerUserStats(new Date(`${start}T00:00:00+05:30`).toISOString());
+    }),
+  );
+  return Object.fromEntries(periods.map((p, i) => [p, results[i]])) as Record<UserPeriod, UserStats[]>;
 }

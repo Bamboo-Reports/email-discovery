@@ -1,6 +1,23 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  RiCheckboxCircleLine,
+  RiCheckDoubleLine,
+  RiCloseLine,
+  RiDownload2Line,
+  RiErrorWarningFill,
+  RiFileExcel2Line,
+  RiHourglassLine,
+  RiPlayFill,
+  RiRestartLine,
+  RiSearchLine,
+  RiShieldCheckLine,
+  RiSpeedLine,
+  RiTimeLine,
+  RiUploadCloud2Line,
+  type RemixiconComponentType,
+} from '@remixicon/react';
 import { Spinner } from '@/components/Spinner';
 import { generatePatterns } from '@/lib/patterns';
 
@@ -31,9 +48,9 @@ type Out = { email: string; status: BulkStatus; confidence: number; rr: Provider
 type Parsed = { headers: string[]; rows: Record<string, string>[] };
 type Mapping = { uuid: string; firstName: string; lastName: string; domain: string; email: string };
 
-const BULK_MODES: { id: BulkMode; label: string }[] = [
-  { id: 'discovery', label: 'discovery' },
-  { id: 'verification', label: 'verification' },
+const BULK_MODES: { id: BulkMode; label: string; Icon: RemixiconComponentType }[] = [
+  { id: 'discovery', label: 'discovery', Icon: RiSearchLine },
+  { id: 'verification', label: 'verification', Icon: RiShieldCheckLine },
 ];
 
 const FIELD_DEFS: Record<BulkMode, { key: keyof Mapping; label: string; required: boolean; aliases: string[] }[]> = {
@@ -263,12 +280,12 @@ export default function BatchLookup() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? `request failed (${res.status})`);
+      if (!res.ok) throw new Error(data?.error ?? `something went wrong (error ${res.status}). try again.`);
       setSaveState('saved');
       setSavedRunKey(runKey);
     } catch (e: any) {
       setSaveState('error');
-      setSaveError(e?.message ?? 'failed to save export');
+      setSaveError(e?.message ?? 'couldn’t save to history');
     }
   }
 
@@ -288,12 +305,12 @@ export default function BatchLookup() {
         throw new Error(`unsupported file "${file.name}". upload a .csv or .xlsx file.`);
       }
       const p = await parseFile(file);
-      if (!p.headers.length) throw new Error('file is empty or has no header row.');
-      if (!p.rows.length) throw new Error('file has headers but no data rows.');
+      if (!p.headers.length) throw new Error('this file is empty or has no header row.');
+      if (!p.rows.length) throw new Error('this file has a header row but no data.');
       setParsed(p);
       setMapping(guessMapping(p.headers, mode));
     } catch (e: any) {
-      setError(e.message ?? 'failed to read file');
+      setError(e.message ?? 'couldn’t read this file.');
     } finally {
       setImporting(false);
     }
@@ -306,7 +323,7 @@ export default function BatchLookup() {
     const fieldDefs = FIELD_DEFS[mode];
     const missing = fieldDefs.filter((f) => f.required && !mapping[f.key]).map((f) => f.label);
     if (missing.length) {
-      setError(`map these column(s) first: ${missing.join(', ')}`);
+      setError(`pick a column for: ${missing.join(', ')}`);
       return;
     }
     setError(null);
@@ -558,6 +575,7 @@ export default function BatchLookup() {
                 onClick={() => switchMode(m.id)}
                 disabled={running}
               >
+                <m.Icon size={16} />
                 {m.label}
               </button>
             ))}
@@ -577,17 +595,13 @@ export default function BatchLookup() {
               onClick={() => fileRef.current?.click()}
             >
               <div className="drop-icon">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
+                <RiUploadCloud2Line size={24} aria-hidden="true" />
               </div>
               <div>
-                <strong>drop a CSV or Excel file here</strong>
+                <strong>drop a csv or excel file here, or click to browse</strong>
               </div>
               <div className="small" style={{ marginTop: 10 }}>
-                {mode === 'discovery' ? 'map name and domain columns' : 'map uuid and email columns'} ·{' '}
+                {mode === 'discovery' ? 'needs name and domain columns' : 'needs uuid and email columns'} ·{' '}
                 <kbd>.csv</kbd> <kbd>.xlsx</kbd>
               </div>
               <input
@@ -615,19 +629,18 @@ export default function BatchLookup() {
             </div>
           )}
 
-        {error && <div className="err">{error}</div>}
+        {error && <div className="err"><RiErrorWarningFill size={18} aria-hidden="true" /><span>{error}</span></div>}
 
           {parsed && rows.length === 0 && (
             <div className="map-panel">
               <div className="map-head">
                 <div>
-                  <h3>map your columns</h3>
+                  <h3>match your columns</h3>
                   <p>
-                    matched <strong>{parsed.rows.length}</strong> rows · pick which column feeds
-                    each field, then verify
+                    found <strong>{parsed.rows.length}</strong> rows. pick the column for each field.
                   </p>
                 </div>
-                <span className="map-filecount">{parsed.headers.length} columns</span>
+                <span className="map-filecount"><RiFileExcel2Line size={14} aria-hidden="true" /> {parsed.headers.length} columns</span>
               </div>
 
               <div className="map-grid">
@@ -684,15 +697,15 @@ export default function BatchLookup() {
 
               <div className="toolbar">
                 <button className="btn primary" onClick={confirmMapping}>
-                  verify {parsed.rows.length} rows
+                  <RiCheckDoubleLine size={16} aria-hidden="true" /> use these columns
                 </button>
                 <div className="small" style={{ color: 'var(--ink-4)' }}>
                   {mode === 'discovery'
-                    ? 'rows are sorted by domain automatically'
-                    : 'verification checks Reacher first, then MillionVerifier when needed'}
+                    ? 'rows will be sorted by domain'
+                    : 'reacher checks every email; millionverifier double-checks the ones reacher marks invalid or can’t confirm'}
                 </div>
                 <div className="spacer" />
-                <button className="btn" onClick={reset}>cancel</button>
+                <button className="btn" onClick={reset}><RiCloseLine size={16} aria-hidden="true" /> cancel</button>
               </div>
             </div>
           )}
@@ -705,17 +718,17 @@ export default function BatchLookup() {
                     {running ? (
                       <>
                         <Spinner />
-                        verifying <strong>{doneCount}</strong> of {rows.length} ·{' '}
-                        <strong>{remainingCount}</strong> remaining
+                        checked <strong>{doneCount}</strong> of {rows.length} ·{' '}
+                        <strong>{remainingCount}</strong> left
                       </>
                     ) : doneCount === rows.length ? (
                       <>
-                        processed <strong>{doneCount}</strong> rows ·{' '}
+                        done · <strong>{doneCount}</strong> rows checked ·{' '}
                         <strong>{validCount}</strong> valid
                       </>
                     ) : (
                       <>
-                        <strong>{rows.length}</strong> rows queued · ready to verify
+                        <strong>{rows.length}</strong> rows ready
                       </>
                     )}
                   </span>
@@ -729,16 +742,16 @@ export default function BatchLookup() {
                 </div>
                 {running && (
                   <div className="progress-meta">
-                    <span><strong>{runStats.elapsed}</strong> elapsed</span>
-                    <span><strong>{runStats.eta}</strong> ETA</span>
-                    <span><strong>{doneCount}</strong> completed</span>
-                    <span><strong>{remainingCount}</strong> remaining</span>
-                    <span><strong>{activeIds.size || 1}</strong> active</span>
+                    <span><strong>{runStats.elapsed}</strong><RiTimeLine size={12} aria-hidden="true" /> elapsed</span>
+                    <span><strong>{runStats.eta}</strong><RiHourglassLine size={12} aria-hidden="true" /> ETA</span>
+                    <span><strong>{doneCount}</strong><RiCheckboxCircleLine size={12} aria-hidden="true" /> completed</span>
+                    <span><strong>{remainingCount}</strong><RiTimeLine size={12} aria-hidden="true" /> remaining</span>
+                    <span><strong>{activeIds.size || 1}</strong><RiPlayFill size={12} aria-hidden="true" /> active</span>
                     <span>
                       <strong>
                         {runStats.rowsPerMinute ? runStats.rowsPerMinute.toFixed(1) : '—'}
-                      </strong>{' '}
-                      rows/min
+                      </strong>
+                      <RiSpeedLine size={12} aria-hidden="true" /> rows/min
                     </span>
                   </div>
                 )}
@@ -753,9 +766,9 @@ export default function BatchLookup() {
                   {running ? (
                     <><Spinner /> running</>
                   ) : doneCount === rows.length ? (
-                    <>complete</>
+                    <><RiCheckDoubleLine size={16} aria-hidden="true" /> done</>
                   ) : (
-                    <>verify {rows.length} rows</>
+                    <><RiPlayFill size={16} aria-hidden="true" /> {mode === 'discovery' ? 'find emails' : 'verify emails'} · {rows.length} rows</>
                   )}
                 </button>
                 {doneCount > 0 && !running && (
@@ -763,18 +776,18 @@ export default function BatchLookup() {
                     className="btn"
                     onClick={download}
                   >
-                    export csv
+                    <RiDownload2Line size={16} aria-hidden="true" /> export csv
                   </button>
                 )}
                 {doneCount === rows.length && !running && (
                   <div className="small export-save-status">
                     {saveState === 'saving' ? (
-                      <><Spinner /> saving export</>
+                      <><Spinner /> saving to history</>
                     ) : saveState === 'saved' ? (
-                      <>saved to bulk history</>
+                      <><RiCheckboxCircleLine size={14} aria-hidden="true" /> saved to history</>
                     ) : saveState === 'error' ? (
                       <>
-                        export save failed
+                        <RiErrorWarningFill size={14} aria-hidden="true" /> couldn’t save to history
                         {completedRunKey && (
                           <button
                             type="button"
@@ -790,7 +803,7 @@ export default function BatchLookup() {
                 )}
                 <div className="spacer" />
                 <button className="btn" onClick={reset} disabled={running}>
-                  reset
+                  <RiRestartLine size={16} aria-hidden="true" /> reset
                 </button>
               </div>
 
@@ -798,11 +811,11 @@ export default function BatchLookup() {
                 <div className="bulk-summary">
                   <div className="summary-head">
                     <div>
-                      <h3>bulk summary</h3>
+                      <h3>results</h3>
                       <p>
                         {mode === 'discovery'
-                          ? `${bulkSummary.successCount} valid or probable emails found from ${rows.length} rows`
-                          : `${bulkSummary.successCount} valid or accept-all emails from ${rows.length} rows`}
+                          ? `found ${bulkSummary.successCount} valid or accept-all emails in ${rows.length} rows`
+                          : `${bulkSummary.successCount} of ${rows.length} emails are valid or accept-all`}
                       </p>
                     </div>
                     <strong>{Math.round(bulkSummary.successRate * 100)}%</strong>
@@ -847,7 +860,7 @@ export default function BatchLookup() {
                       </div>
                     )}
                     <div className="summary-stat">
-                      <span>missing inputs</span>
+                      <span>rows missing data</span>
                       <strong>{bulkSummary.missingInputCount}</strong>
                     </div>
                   </div>

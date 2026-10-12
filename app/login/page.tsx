@@ -3,6 +3,14 @@
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
+import {
+  RiAtLine,
+  RiErrorWarningFill,
+  RiLockLine,
+  RiLoginBoxLine,
+  RiMailCheckFill,
+  RiUserAddLine,
+} from '@remixicon/react';
 import { Spinner } from '@/components/Spinner';
 
 const ALLOWED_DOMAIN = 'researchnxt.com';
@@ -17,7 +25,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(
+    params.get('archived') ? 'your access was removed. ask an admin if you still need it.' : null,
+  );
 
   async function submit() {
     setError(null);
@@ -26,7 +36,7 @@ export default function LoginPage() {
     if (!em || !password) return;
 
     if (mode === 'signup' && !em.endsWith('@' + ALLOWED_DOMAIN)) {
-      setError(`sign-up is restricted to @${ALLOWED_DOMAIN} addresses`);
+      setError(`only @${ALLOWED_DOMAIN} addresses can sign up.`);
       return;
     }
 
@@ -45,12 +55,15 @@ export default function LoginPage() {
           router.replace(next);
           router.refresh();
         } else {
-          setNotice('account created — check your email to confirm, then sign in.');
+          setNotice('account created. confirm it from the email we just sent, then sign in.');
           setMode('signin');
         }
       }
     } catch (e: any) {
-      setError(e?.message ?? 'authentication failed');
+      // Supabase reports archived (banned) accounts as "User is banned".
+      setError(/banned/i.test(e?.message ?? '')
+        ? 'this account is archived. ask an admin to restore it.'
+        : (e?.message ?? 'couldn’t sign you in. check your email and password.'));
     } finally {
       setBusy(false);
     }
@@ -60,8 +73,11 @@ export default function LoginPage() {
     <div className="page" style={{ maxWidth: 420 }}>
       <header className="page-head">
         <div>
-          <h1>email workbench</h1>
-          <p className="page-sub">sign in to find, verify, and track email lookups.</p>
+          <h1 className="brand-title">
+            <span className="appnav-logo lg"><RiMailCheckFill size={20} aria-hidden="true" /></span>
+            email workbench
+          </h1>
+          <p className="page-sub">sign in with your @{ALLOWED_DOMAIN} account.</p>
         </div>
       </header>
 
@@ -72,12 +88,14 @@ export default function LoginPage() {
               className={`tab ${mode === 'signin' ? 'active' : ''}`}
               onClick={() => { setMode('signin'); setError(null); setNotice(null); }}
             >
+              <RiLoginBoxLine size={16} aria-hidden="true" />
               sign in
             </button>
             <button
               className={`tab ${mode === 'signup' ? 'active' : ''}`}
               onClick={() => { setMode('signup'); setError(null); setNotice(null); }}
             >
+              <RiUserAddLine size={16} aria-hidden="true" />
               sign up
             </button>
           </div>
@@ -89,36 +107,42 @@ export default function LoginPage() {
           >
             <div className="field">
               <label>email address<span className="req">●</span></label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder={`you@${ALLOWED_DOMAIN}`}
-                autoComplete="email"
-                spellCheck={false}
-              />
+              <span className="input-icon">
+                <RiAtLine size={16} aria-hidden="true" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={`you@${ALLOWED_DOMAIN}`}
+                  autoComplete="email"
+                  spellCheck={false}
+                />
+              </span>
             </div>
             <div className="field">
               <label>password<span className="req">●</span></label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-              />
+              <span className="input-icon">
+                <RiLockLine size={16} aria-hidden="true" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                />
+              </span>
             </div>
             <button className="btn accent" onClick={submit} disabled={busy || !email || !password}>
-              {busy ? <><Spinner /> {mode === 'signin' ? 'signing in' : 'creating'}</> : (mode === 'signin' ? 'sign in' : 'create account')}
+              {busy ? <><Spinner /> {mode === 'signin' ? 'signing in' : 'creating account'}</> : (mode === 'signin'
+                ? <><RiLoginBoxLine size={16} aria-hidden="true" /> sign in</>
+                : <><RiUserAddLine size={16} aria-hidden="true" /> create account</>)}
             </button>
           </div>
 
-          {error && <div className="err">{error}</div>}
+          {error && <div className="err"><RiErrorWarningFill size={18} aria-hidden="true" /><span>{error}</span></div>}
           {notice && <div className="small" style={{ marginTop: 12 }}>{notice}</div>}
         </div>
       </div>
-
-      <p className="foot">internal · email workbench</p>
     </div>
   );
 }

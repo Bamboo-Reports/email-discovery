@@ -3,6 +3,9 @@ node_modules
 out
 .turbo
 .env*.local
+# secrets (e.g. backend_latest.env, reacher-deploy/.env); .env.example files stay tracked
+.env
+*.env
 *.log
 .DS_Store
 
